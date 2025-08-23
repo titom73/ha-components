@@ -11,7 +11,7 @@ blueprint:
   input:
     enable_boolean:
       name: Enable boolean (helper)
-      description: Only run when this input_boolean is ON.
+      description: "Only run when this input_boolean is ON."
       selector:
         entity:
           domain: input_boolean
@@ -24,27 +24,27 @@ blueprint:
 
     send_time_entity:
       name: Send time (input_datetime)
-      description: Select an existing input_datetime that has time enabled (has_time: true). If it also has a date, it will run at that date/time; if time-only, it runs daily at that time.
+      description: "Select an existing input_datetime that has time enabled (has_time: true). If it also has a date, it will run at that date/time; if time-only, it runs daily at that time."
       selector:
         entity:
           domain: input_datetime
 
     telegram_targets:
       name: Telegram chat IDs
-      description: One or more chat_id values, separated by commas (e.g., 123456789, -1001122334455).
+      description: "One or more chat_id values, separated by commas (e.g., 123456789, -1001122334455)."
       selector:
         text:
 
     telegram_config_entry_id:
       name: Telegram bot config_entry_id (optional)
-      description: Only needed if multiple Telegram bots are configured.
+      description: "Only needed if multiple Telegram bots are configured."
       default: ""
       selector:
         text:
 
     caption_template:
       name: Message caption (template)
-      description: Jinja supported.
+      description: "Jinja supported."
       default: >
         {{ state_attr(camera_entity, 'friendly_name') or camera_entity }} — {{ now().strftime('%d/%m/%Y %H:%M') }}
       selector:
@@ -52,12 +52,10 @@ blueprint:
 
 mode: single
 
-triggers:
-  # Directly use the input_datetime entity as the 'at' source
+trigger:
   - trigger: time
     at: !input send_time_entity
 
-# Run only if the boolean is ON
 condition:
   - condition: state
     entity_id: !input enable_boolean
@@ -70,4 +68,32 @@ variables:
     /config/www/snapshots/{{ camera_entity.split('.')[-1] }}_{{ now().strftime('%Y%m%d-%H%M%S') }}.jpg
   targets_text: !input telegram_targets
   targets_list: >
-    {{ targets_text.split(',') | map('trim') | rej_
+    {{ targets_text.split(',') | map('trim') | reject('equalto', '') | map('int') | list }}
+  config_id: !input telegram_config_entry_id
+  caption_rendered: !input caption_template
+
+action:
+  - alias: Take snapshot
+    action: camera.snapshot
+    target:
+      entity_id: !input camera_entity
+    data:
+      filename: "{{ snap_path }}"
+
+  - choose:
+      - conditions: "{{ (config_id|string)|length > 0 }}"
+        sequence:
+          - alias: Send photo to Telegram (with config_entry_id)
+            action: telegram_bot.send_photo
+            data:
+              file: "{{ snap_path }}"
+              caption: "{{ caption_rendered }}"
+              target: "{{ targets_list }}"
+              config_entry_id: "{{ config_id }}"
+    default:
+      - alias: Send photo to Telegram
+        action: telegram_bot.send_photo
+        data:
+          file: "{{ snap_path }}"
+          caption: "{{ caption_rendered }}"
+          target: "{{ targets_list }}"
