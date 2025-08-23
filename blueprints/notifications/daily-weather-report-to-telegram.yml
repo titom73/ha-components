@@ -121,12 +121,13 @@ variables:
     {% set out_ok = states(outdoor_sensor) not in ['unknown','unavailable', none] %}
     Bonjour,
 
-    Aujourd'hui :
+    Aujourd'hui la météo est __{{ states('sensor.massy_original_condition') }}__ avec les températures suivantes:
     {% if out_ok %}
     • Température extérieure : {{ states(outdoor_sensor) }} °C
     {% else %}
     • Température extérieure : (indisponible)
     {% endif %}
+    • Maximum attendu de __{{ states('sensor.meteo_maison_accuweather_temperature_ressentie_maximum_aujourd_hui') }}__ 
 
     {% if in_ok %}
     • Température pièce principale : {{ states(indoor_sensor) }} °C
