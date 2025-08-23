@@ -1,8 +1,10 @@
 blueprint:
-  name: "Daily Weather via Telegram (telegram_bot) — FR message + alerts + bot selector"
+  name: "Daily Weather via Telegram (telegram_bot) — FR message + alerts + presence"
   description: >
     Send a daily weather message in French (with optional weather alert banner) to one or more Telegram chats,
-    and attach snapshots from one or more cameras. Trigger time is taken from an input_datetime helper.
+    and attach snapshots from one or more cameras.
+    Trigger time is taken from an input_datetime helper.
+    Runs only if the chosen presence boolean is ON (absence mode by default).
     Supports selecting a specific Telegram bot (config_entry_id) when you have multiple bots.
 
   domain: automation
@@ -14,6 +16,15 @@ blueprint:
       selector:
         entity:
           domain: input_datetime
+
+    presence_boolean:
+      name: Presence/Absence boolean
+      description: >
+        Boolean that controls execution. Automation runs only if this boolean is ON.
+        Typical use: `input_boolean.absent` (ON when away).
+      selector:
+        entity:
+          domain: input_boolean
 
     indoor_temp:
       name: Main room temperature sensor
@@ -59,7 +70,8 @@ blueprint:
       name: (Optional) Telegram bot config_entry_id
       description: >
         If you have multiple Telegram bots, set the config_entry_id of the bot to use.
-        Leave empty to use the default bot. Example: 01K1N1SB7N8J1DSE6Q8DGVTMVH
+        Leave empty to use the default bot.
+        Example: 01K1N1SB7N8J1DSE6Q8DGVTMVH
       default: ""
       selector:
         text:
@@ -70,15 +82,17 @@ trace:
   stored_traces: 20
 
 trigger:
-  # Using an input_datetime entity directly as a time trigger.
   - trigger: time
     at: !input time_helper
 
-variables:
-  # --- General helpers (English comments) ---
-  ts: "{{ now().strftime('%Y%m%d-%H%M%S') }}"   # Timestamp used in filenames
+condition:
+  # Only run if presence_boolean is ON
+  - condition: state
+    entity_id: !input presence_boolean
+    state: "on"
 
-  # Blueprint inputs as variables for templating
+variables:
+  ts: "{{ now().strftime('%Y%m%d-%H%M%S') }}"   # Timestamp used in filenames
   indoor_sensor: !input indoor_temp
   outdoor_sensor: !input outdoor_temp
   cams: !input cameras
@@ -86,13 +100,12 @@ variables:
   alert_ent: !input weather_alert_sensor
   tg_cfg: !input telegram_config_entry_id
 
-  # Filesystem-safe name for camera entity
   cam_slug: >-
     {% macro slug(e) -%}
       {{ e | replace('.', '_') | replace(':', '_') }}
     {%- endmacro %}
 
-  # --- Build alert banner in French (replicates your original logic, generalized) ---
+  # --- Alert banner in French ---
   alert_text: >-
     {% if alert_ent %}
       {% set ok = states(alert_ent) not in ['unknown','unavailable', none] %}
@@ -112,35 +125,35 @@ variables:
         __Attention, alerte météo en cours__ : {{ ns.parts | join(', ') }}
       {%- elif ok and states(alert_ent)!='Vert' -%}
         __Attention, alerte météo en cours__ : {{ emoji.get(states(alert_ent),'❗') }} {{ states(alert_ent) }}
-      {%- else -%}{%- endif %}
+      {%- endif %}
     {% endif %}
 
-  # --- Compose the French weather message (graceful handling of unknowns) ---
-  weather_msg: >-
+  # --- Weather message in French, with line breaks preserved ---
+  weather_msg: |-
     {% set in_ok = states(indoor_sensor) not in ['unknown','unavailable', none] %}
     {% set out_ok = states(outdoor_sensor) not in ['unknown','unavailable', none] %}
     Bonjour,
 
-    Aujourd'hui la météo est __{{ states('sensor.massy_original_condition') }}__ avec les températures suivantes:
+    Aujourd'hui :
+
     {% if out_ok %}
-    • Température extérieure : {{ states(outdoor_sensor) }} °C
+    • Température extérieure : {{ states(outdoor_sensor) }} °C\n
     {% else %}
-    • Température extérieure : (indisponible)
+    • Température extérieure : (indisponible)\n
     {% endif %}
-    • Maximum attendu de __{{ states('sensor.meteo_maison_accuweather_temperature_ressentie_maximum_aujourd_hui') }}__ 
+    • Maximum attendu de __{{ states('sensor.meteo_maison_accuweather_temperature_ressentie_maximum_aujourd_hui') }}__ \n
 
     {% if in_ok %}
-    • Température pièce principale : {{ states(indoor_sensor) }} °C
+    • Température pièce principale : {{ states(indoor_sensor) }} °C\n
     {% else %}
-    • Température pièce principale : (indisponible)
+    • Température pièce principale : (indisponible)\n
     {% endif %}
-
+    \n
     {{ alert_text }}
-
+    \n
     Envoyé le {{ now().strftime('%d/%m/%Y %H:%M') }}.
 
 action:
-  # --- Send the text message ---
   - choose:
       - conditions: "{{ tg_cfg | trim != '' }}"
         sequence:
@@ -159,7 +172,6 @@ action:
           title: "Météo de la maison"
           message: "{{ weather_msg }}"
 
-  # --- Snapshot each camera and send to all chats ---
   - repeat:
       for_each: !input cameras
       sequence:
@@ -176,12 +188,12 @@ action:
           data:
             filename: "{{ file_path }}"
 
-        - delay: "00:00:01"  # Small delay to ensure the file is written
+        - delay: "00:00:01"
 
         - choose:
             - conditions: "{{ tg_cfg | trim != '' }}"
               sequence:
-                - alias: "Send snapshot with selected Telegram bot (config_entry_id)"
+                - alias: "Send snapshot with selected Telegram bot"
                   action: telegram_bot.send_photo
                   data:
                     target: !input chat_ids
