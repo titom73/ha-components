@@ -1,8 +1,9 @@
 blueprint:
-  name: "Daily Weather via Telegram (telegram_bot) — FR message + alerts"
+  name: "Daily Weather via Telegram (telegram_bot) — FR message + alerts + bot selector"
   description: >
     Send a daily weather message in French (with optional weather alert banner) to one or more Telegram chats,
     and attach snapshots from one or more cameras. Trigger time is taken from an input_datetime helper.
+    Supports selecting a specific Telegram bot (config_entry_id) when you have multiple bots.
 
   domain: automation
 
@@ -53,8 +54,16 @@ blueprint:
       selector:
         entity:
           domain: sensor
-          multiple: false
-          # Leave unfiltered; user can pick the right entity.
+
+    telegram_config_entry_id:
+      name: (Optional) Telegram bot config_entry_id
+      description: >
+        If you have multiple Telegram bots, set the config_entry_id of the bot to use.
+        Leave empty to use the default bot. Example: 01K1N1SB7N8J1DSE6Q8DGVTMVH
+      default: ""
+      selector:
+        text:
+          type: text
 
 mode: single
 trace:
@@ -75,6 +84,7 @@ variables:
   cams: !input cameras
   tg_chats: !input chat_ids
   alert_ent: !input weather_alert_sensor
+  tg_cfg: !input telegram_config_entry_id
 
   # Filesystem-safe name for camera entity
   cam_slug: >-
@@ -84,12 +94,9 @@ variables:
 
   # --- Build alert banner in French (replicates your original logic, generalized) ---
   alert_text: >-
-    {# If no alert entity provided, return empty #}
-    {% if not alert_ent %}{% set _ = none %}{% endif %}
-    {% set ent = alert_ent %}
-    {% if ent %}
-      {% set ok = states(ent) not in ['unknown','unavailable', none] %}
-      {% set attrs = states[ent].attributes if ok else dict() %}
+    {% if alert_ent %}
+      {% set ok = states(alert_ent) not in ['unknown','unavailable', none] %}
+      {% set attrs = states[alert_ent].attributes if ok else dict() %}
       {% set ignore = ['friendly_name','icon'] %}
       {% set order = ['Rouge','Orange','Jaune'] %}
       {% set emoji = {'Rouge':'🟥','Orange':'🟧','Jaune':'🟨','Vert':'🟩'} %}
@@ -103,10 +110,10 @@ variables:
       {% endfor %}
       {% if ok and ns.parts|length>0 -%}
         __Attention, alerte météo en cours__ : {{ ns.parts | join(', ') }}
-      {%- elif ok and states(ent)!='Vert' -%}
-        __Attention, alerte météo en cours__ : {{ emoji.get(states(ent),'❗') }} {{ states(ent) }}
+      {%- elif ok and states(alert_ent)!='Vert' -%}
+        __Attention, alerte météo en cours__ : {{ emoji.get(states(alert_ent),'❗') }} {{ states(alert_ent) }}
       {%- else -%}{%- endif %}
-    {% else %}{% endif %}
+    {% endif %}
 
   # --- Compose the French weather message (graceful handling of unknowns) ---
   weather_msg: >-
@@ -115,31 +122,44 @@ variables:
     Bonjour,
 
     Aujourd'hui :
-    {% if out_ok -%}
+    {% if out_ok %}
     • Température extérieure : {{ states(outdoor_sensor) }} °C
-    {%- else -%}
+    {% else %}
     • Température extérieure : (indisponible)
-    {%- endif %}
-    {% if in_ok -%}
+    {% endif %}
+
+    {% if in_ok %}
     • Température pièce principale : {{ states(indoor_sensor) }} °C
-    {%- else -%}
+    {% else %}
     • Température pièce principale : (indisponible)
-    {%- endif %}
+    {% endif %}
 
     {{ alert_text }}
 
     Envoyé le {{ now().strftime('%d/%m/%Y %H:%M') }}.
 
 action:
-  - alias: "Send text message to all chats (list of targets supported)"
-    action: telegram_bot.send_message
-    data:
-      target: !input chat_ids
-      title: "Météo de la maison"
-      message: "{{ weather_msg }}"
+  # --- Send the text message ---
+  - choose:
+      - conditions: "{{ tg_cfg | trim != '' }}"
+        sequence:
+          - alias: "Send text with selected Telegram bot (config_entry_id)"
+            action: telegram_bot.send_message
+            data:
+              target: !input chat_ids
+              title: "Météo de la maison"
+              message: "{{ weather_msg }}"
+              config_entry_id: "{{ tg_cfg }}"
+    default:
+      - alias: "Send text with default Telegram bot"
+        action: telegram_bot.send_message
+        data:
+          target: !input chat_ids
+          title: "Météo de la maison"
+          message: "{{ weather_msg }}"
 
-  - alias: "Snapshot each camera and send to all chats"
-    repeat:
+  # --- Snapshot each camera and send to all chats ---
+  - repeat:
       for_each: !input cameras
       sequence:
         - variables:
@@ -157,10 +177,22 @@ action:
 
         - delay: "00:00:01"  # Small delay to ensure the file is written
 
-        - alias: "Send snapshot to all chats (list of targets supported)"
-          action: telegram_bot.send_photo
-          data:
-            target: !input chat_ids
-            file: "{{ file_path }}"
-            caption: >-
-              {{ state_attr(cam_entity, 'friendly_name') or cam_entity }} — {{ now().strftime('%d/%m/%Y %H:%M') }}
+        - choose:
+            - conditions: "{{ tg_cfg | trim != '' }}"
+              sequence:
+                - alias: "Send snapshot with selected Telegram bot (config_entry_id)"
+                  action: telegram_bot.send_photo
+                  data:
+                    target: !input chat_ids
+                    file: "{{ file_path }}"
+                    caption: >-
+                      {{ state_attr(cam_entity, 'friendly_name') or cam_entity }} — {{ now().strftime('%d/%m/%Y %H:%M') }}
+                    config_entry_id: "{{ tg_cfg }}"
+          default:
+            - alias: "Send snapshot with default Telegram bot"
+              action: telegram_bot.send_photo
+              data:
+                target: !input chat_ids
+                file: "{{ file_path }}"
+                caption: >-
+                  {{ state_attr(cam_entity, 'friendly_name') or cam_entity }} — {{ now().strftime('%d/%m/%Y %H:%M') }}
