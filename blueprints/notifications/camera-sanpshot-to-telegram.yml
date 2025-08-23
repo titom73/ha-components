@@ -2,50 +2,65 @@ blueprint:
   name: Daily camera snapshot to Telegram
   description: >
     Take a snapshot from a camera every day at the specified time and send it to Telegram.
-    The file is stored in /config/www/snapshots/ and includes the camera entity name.
-    Requires /config/www to be listed in homeassistant.allowlist_external_dirs.
+    Runs only if the provided enable boolean is ON. Stores file in /config/www/snapshots/.
+    Requires /config/www in homeassistant.allowlist_external_dirs.
   domain: automation
   input:
+    enable_boolean:
+      name: Enable boolean (helper)
+      description: Only run when this input_boolean is ON.
+      selector:
+        entity:
+          domain: input_boolean
+
     camera_entity:
       name: Camera
       selector:
         entity:
           domain: camera
+
     send_time:
       name: Send time
       selector:
         time:
+
     telegram_targets:
       name: Telegram chat IDs
       description: >
         One or more chat_id values, separated by commas (e.g., 123456789, -1001122334455).
-        Chats must already be authorized in the Telegram integration.
       selector:
         text:
+
     telegram_config_entry_id:
       name: Telegram bot config_entry_id (optional)
-      description: >
-        Only required if you have multiple Telegram bots configured.
+      description: Only needed if multiple Telegram bots are configured.
       default: ""
       selector:
         text:
+
     caption_template:
       name: Message caption (template)
-      description: >
-        Jinja is supported. Defaults to friendly name of the camera plus timestamp.
+      description: Jinja supported.
       default: >
         {{ state_attr(camera_entity, 'friendly_name') or camera_entity }} — {{ now().strftime('%d/%m/%Y %H:%M') }}
       selector:
         text:
 
 mode: single
+
 triggers:
   - trigger: time
     at: !input send_time
 
+# ✅ Run only if the boolean is ON
+condition:
+  - condition: state
+    entity_id: !input enable_boolean
+    state: "on"
+
 variables:
   camera_entity: !input camera_entity
-  # File path: /config/www/snapshots/<entity_name>_<YYYYMMDD-HHMMSS>.jpg
+  # /config/www/snapshots/<entity_name>_<YYYYMMDD-HHMMSS>.jpg
   snap_path: >
     /config/www/snapshots/{{ camera_entity.split('.')[-1] }}_{{ now().strftime('%Y%m%d-%H%M%S') }}.jpg
   targets_text: !input telegram_targets
