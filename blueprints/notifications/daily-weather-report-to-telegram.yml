@@ -137,20 +137,20 @@ variables:
     Aujourd'hui :
 
     {% if out_ok %}
-    • Température extérieure : {{ states(outdoor_sensor) }} °C\n
+    • Température extérieure : {{ states(outdoor_sensor) }} °C
     {% else %}
-    • Température extérieure : (indisponible)\n
+    • Température extérieure : (indisponible)
     {% endif %}
-    • Maximum attendu de __{{ states('sensor.meteo_maison_accuweather_temperature_ressentie_maximum_aujourd_hui') }}__ \n
+    • Maximum attendu de __{{ states('sensor.meteo_maison_accuweather_temperature_ressentie_maximum_aujourd_hui') }}__
 
     {% if in_ok %}
-    • Température pièce principale : {{ states(indoor_sensor) }} °C\n
+    • Température pièce principale : {{ states(indoor_sensor) }} °C
     {% else %}
-    • Température pièce principale : (indisponible)\n
+    • Température pièce principale : (indisponible)
     {% endif %}
-    \n
+    
     {{ alert_text }}
-    \n
+    
     Envoyé le {{ now().strftime('%d/%m/%Y %H:%M') }}.
 
 action:
