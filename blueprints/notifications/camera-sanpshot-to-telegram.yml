@@ -24,7 +24,7 @@ blueprint:
 
     send_time_entity:
       name: Send time (input_datetime)
-      description: "Select an existing input_datetime that has time enabled (has_time: true). If it also has a date, it will run at that date/time; if time-only, it runs daily at that time."
+      description: "Select an existing input_datetime that has time enabled (has_time is set to true). If it also has a date, it will run at that date/time; if time-only, it runs daily at that time."
       selector:
         entity:
           domain: input_datetime
