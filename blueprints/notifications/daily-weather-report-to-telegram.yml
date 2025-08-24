@@ -46,14 +46,6 @@ blueprint:
           domain: camera
           multiple: true
 
-    chat_ids:
-      name: Chat IDs Telegram
-      description: "Un ou plusieurs IDs numériques de chat pour votre bot Telegram."
-      selector:
-        text:
-          multiple: true
-          type: text
-
     weather_alert_sensor:
       name: (Optionnel) Capteur alerte météo
       description: "Capteur exposant les niveaux de vigilance (ex : intégration Météo-France)."
@@ -61,6 +53,14 @@ blueprint:
       selector:
         entity:
           domain: sensor
+
+    chat_ids:
+      name: Chat IDs Telegram
+      description: "Un ou plusieurs IDs numériques de chat pour votre bot Telegram."
+      selector:
+        text:
+          multiple: true
+          type: text
 
     telegram_config_entry_id:
       name: (Optionnel) Telegram bot config_entry_id
