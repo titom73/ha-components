@@ -1,77 +1,82 @@
 blueprint:
-  name: "Daily Weather via Telegram (telegram_bot) — FR message + alerts + presence"
+  name: "Daily Weather via Telegram (telegram_bot) — FR message + alerts + presence (+ date/heure unique)"
   description: >
-    Send a daily weather message in French (with optional weather alert banner) to one or more Telegram chats,
-    and attach snapshots from one or more cameras.
-    Trigger time is taken from an input_datetime helper.
-    Runs only if the chosen presence boolean is ON (absence mode by default).
-    Supports selecting a specific Telegram bot (config_entry_id) when you have multiple bots.
+    Envoie un message météo quotidien en français (avec bannière d’alerte météo facultative) à un ou plusieurs chats Telegram,
+    et attache des snapshots d’une ou plusieurs caméras.
+    Peut fonctionner :
+      - chaque jour à une heure (input_datetime time-only)
+      - une seule fois à une date+heure précise (input_datetime date+time).
+    Ne s’exécute que si le booléen de présence choisi est sur ON (mode absence par défaut).
+    Supporte la sélection d’un bot Telegram spécifique via config_entry_id.
 
   domain: automation
 
   input:
     time_helper:
-      name: Time helper (input_datetime)
-      description: "Time-only input_datetime used as the daily trigger."
+      name: Daily time helper (input_datetime, time-only)
+      description: "Si défini, déclenche chaque jour à cette heure."
+      selector:
+        entity:
+          domain: input_datetime
+
+    run_datetime:
+      name: (Optionnel) Date & heure unique (input_datetime)
+      description: "Si défini (date+time), déclenche une fois à cette date & heure."
+      default:
       selector:
         entity:
           domain: input_datetime
 
     presence_boolean:
-      name: Presence/Absence boolean
+      name: Booléen Présence/Absence
       description: >
-        Boolean that controls execution. Automation runs only if this boolean is ON.
-        Typical use: `input_boolean.absent` (ON when away).
+        Booléen qui contrôle l’exécution. L’automatisation ne s’exécute que si ce booléen est ON.
+        Exemple typique : input_boolean.absent (ON = absent).
       selector:
         entity:
           domain: input_boolean
 
     indoor_temp:
-      name: Main room temperature sensor
-      description: "Sensor providing the current indoor temperature (°C)."
+      name: Capteur température pièce principale
       selector:
         entity:
           domain: sensor
 
     outdoor_temp:
-      name: Outdoor temperature sensor
-      description: "Sensor providing the current outdoor temperature (°C)."
+      name: Capteur température extérieure
       selector:
         entity:
           domain: sensor
 
     cameras:
-      name: Cameras for snapshots
-      description: "One or more camera entities to snapshot and send."
+      name: Caméras pour snapshots
+      description: "Une ou plusieurs caméras dont on prend un snapshot à envoyer."
       selector:
         entity:
           domain: camera
           multiple: true
 
     chat_ids:
-      name: Telegram chat IDs
-      description: "One or more numeric chat IDs for your Telegram bot."
+      name: Chat IDs Telegram
+      description: "Un ou plusieurs IDs numériques de chat pour votre bot Telegram."
       selector:
         text:
           multiple: true
           type: text
 
     weather_alert_sensor:
-      name: (Optional) Weather alert sensor
-      description: >
-        Sensor that exposes current vigilance/alert levels (e.g., from Météo-France integration).
-        When provided and active, the alert banner is added to the message.
+      name: (Optionnel) Capteur alerte météo
+      description: "Capteur exposant les niveaux de vigilance (ex : intégration Météo-France)."
       default:
       selector:
         entity:
           domain: sensor
 
     telegram_config_entry_id:
-      name: (Optional) Telegram bot config_entry_id
+      name: (Optionnel) Telegram bot config_entry_id
       description: >
-        If you have multiple Telegram bots, set the config_entry_id of the bot to use.
-        Leave empty to use the default bot.
-        Example: 01K1N1SB7N8J1DSE6Q8DGVTMVH
+        Si vous avez plusieurs bots Telegram, renseignez le config_entry_id du bot à utiliser.
+        Laissez vide pour utiliser le bot par défaut.
       default: ""
       selector:
         text:
@@ -82,34 +87,44 @@ trace:
   stored_traces: 20
 
 trigger:
-  - trigger: time
+  - id: daily_time
+    trigger: time
     at: !input time_helper
 
+  - id: run_once_datetime
+    trigger: template
+    value_template: >-
+      {% set e = run_dt %}
+      {% if not e %}
+        false
+      {% else %}
+        {{ now().strftime('%Y-%m-%d %H:%M') == (as_datetime(states(e)) | as_local).strftime('%Y-%m-%d %H:%M') }}
+      {% endif %}
+
 condition:
-  # Only run if presence_boolean is ON
   - condition: state
     entity_id: !input presence_boolean
     state: "on"
 
 variables:
-  ts: "{{ now().strftime('%Y%m%d-%H%M%S') }}"   # Timestamp used in filenames
+  ts: "{{ now().strftime('%Y%m%d-%H%M%S') }}"
   indoor_sensor: !input indoor_temp
   outdoor_sensor: !input outdoor_temp
   cams: !input cameras
   tg_chats: !input chat_ids
   alert_ent: !input weather_alert_sensor
   tg_cfg: !input telegram_config_entry_id
+  run_dt: !input run_datetime
 
   cam_slug: >-
     {% macro slug(e) -%}
       {{ e | replace('.', '_') | replace(':', '_') }}
     {%- endmacro %}
 
-  # --- Alert banner in French ---
   alert_text: >-
     {% if alert_ent %}
       {% set ok = states(alert_ent) not in ['unknown','unavailable', none] %}
-      {% set attrs = states[alert_ent].attributes if ok else dict() %}
+      {% set attrs = states(alert_ent).attributes if ok else dict() %}
       {% set ignore = ['friendly_name','icon'] %}
       {% set order = ['Rouge','Orange','Jaune'] %}
       {% set emoji = {'Rouge':'🟥','Orange':'🟧','Jaune':'🟨','Vert':'🟩'} %}
@@ -128,7 +143,6 @@ variables:
       {%- endif %}
     {% endif %}
 
-  # --- Weather message in French, with line breaks preserved ---
   weather_msg: |-
     {% set in_ok = states(indoor_sensor) not in ['unknown','unavailable', none] %}
     {% set out_ok = states(outdoor_sensor) not in ['unknown','unavailable', none] %}
@@ -156,7 +170,7 @@ action:
   - choose:
       - conditions: "{{ tg_cfg | trim != '' }}"
         sequence:
-          - alias: "Send text with selected Telegram bot (config_entry_id)"
+          - alias: "Send text with selected Telegram bot"
             action: telegram_bot.send_message
             data:
               target: !input chat_ids
@@ -179,7 +193,7 @@ action:
             file_path: >-
               {{ '/config/www/snapshots/' ~ cam_slug(repeat.item) ~ '_' ~ ts ~ '.jpg' }}
 
-        - alias: "Create snapshot (path must exist and be allow-listed)"
+        - alias: "Create snapshot"
           continue_on_error: true
           action: camera.snapshot
           target:
