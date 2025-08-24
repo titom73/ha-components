@@ -1,7 +1,7 @@
 blueprint:
   name: "Daily Weather via Telegram (telegram_bot) — FR message + alerts + presence (+ date/heure unique)"
   description: >
-    Envoie un message météo quotidien en français (avec bannière d’alerte météo facultative) à un ou plusieurs chats Telegram,
+    Envoie un message météo en français (avec bannière d’alerte météo facultative) à un ou plusieurs chats Telegram,
     et attache des snapshots d’une ou plusieurs caméras.
     Peut fonctionner :
       - chaque jour à une heure (input_datetime time-only)
@@ -15,6 +15,14 @@ blueprint:
     time_helper:
       name: Daily time helper (input_datetime, time-only)
       description: "Si défini, déclenche chaque jour à cette heure."
+      selector:
+        entity:
+          domain: input_datetime
+
+    run_datetime:
+      name: (Optionnel) Date & heure unique (input_datetime)
+      description: "Si défini (date+time), déclenche une fois à cette date & heure."
+      default:
       selector:
         entity:
           domain: input_datetime
@@ -79,30 +87,46 @@ trace:
   stored_traces: 20
 
 trigger:
+  # Daily trigger at the selected time (input_datetime time-only).
   - id: daily_time
     trigger: time
     at: !input time_helper
 
+  # One-shot trigger at run_datetime (date+time).
+  # Fires when local YYYY-MM-DD HH:MM matches the helper value.
+  - id: run_once_datetime
+    trigger: template
+    value_template: >-
+      {% set e = run_dt %}
+      {% if not e %}
+        false
+      {% else %}
+        {{ now().strftime('%Y-%m-%d %H:%M') == (as_datetime(states(e)) | as_local).strftime('%Y-%m-%d %H:%M') }}
+      {% endif %}
+
 condition:
+  # Only run if presence_boolean is ON
   - condition: state
     entity_id: !input presence_boolean
     state: "on"
 
 variables:
-  ts: "{{ now().strftime('%Y%m%d-%H%M%S') }}"
+  ts: "{{ now().strftime('%Y%m%d-%H%M%S') }}"         # Timestamp used in filenames
   indoor_sensor: !input indoor_temp
   outdoor_sensor: !input outdoor_temp
   cams: !input cameras
   tg_chats: !input chat_ids
   alert_ent: !input weather_alert_sensor
   tg_cfg: !input telegram_config_entry_id
+  run_dt: !input run_datetime
 
-  # Define the macro with the SAME name you call later
+  # Macro name and call name MATCH (Option A)
   cam_slug: >-
     {% macro cam_slug(e) -%}
       {{ e | replace('.', '_') | replace(':', '_') }}
     {%- endmacro %}
 
+  # --- Alert banner in French (generalized from your original logic) ---
   alert_text: >-
     {% if alert_ent %}
       {% set ok = states(alert_ent) not in ['unknown','unavailable', none] %}
@@ -125,6 +149,7 @@ variables:
       {%- endif %}
     {% endif %}
 
+  # --- weather_msg EXACTLY as you requested (keeps Jinja trim markers) ---
   weather_msg: |-
     {% set in_ok = states(indoor_sensor) not in ['unknown','unavailable', none] %}
     {% set out_ok = states(outdoor_sensor) not in ['unknown','unavailable', none] %}
@@ -149,6 +174,7 @@ variables:
     Envoyé le {{ now().strftime('%d/%m/%Y %H:%M') }}.
 
 action:
+  # --- Send the text message ---
   - choose:
       - conditions: "{{ tg_cfg | trim != '' }}"
         sequence:
@@ -167,23 +193,23 @@ action:
           title: "Météo de la maison"
           message: "{{ weather_msg }}"
 
+  # --- Snapshot each camera and send to all chats ---
   - repeat:
       for_each: !input cameras
       sequence:
         - variables:
             cam_entity: "{{ repeat.item }}"
             file_path: >-
-              {{ '/config/www/snapshots/' ~ cam_slug(repeat.item) ~ '_' ~ ts ~ '.jpg' }}
+              {{ '/config/www/snapshots/' ~ cam_slug(cam_entity) ~ '_' ~ ts ~ '.jpg' }}
 
-        - alias: "Create snapshot"
-          continue_on_error: true
+        - alias: "Create snapshot (use data.entity_id instead of target)"
+          continue_on_error: false
           action: camera.snapshot
-          target:
-            entity_id: "{{ cam_entity }}"
           data:
+            entity_id: "{{ cam_entity }}"
             filename: "{{ file_path }}"
 
-        - delay: "00:00:01"
+        - delay: "00:00:01"  # small delay to ensure the file is written
 
         - choose:
             - conditions: "{{ tg_cfg | trim != '' }}"
