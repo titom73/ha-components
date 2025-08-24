@@ -97,8 +97,9 @@ variables:
   alert_ent: !input weather_alert_sensor
   tg_cfg: !input telegram_config_entry_id
 
+  # Define the macro with the SAME name you call later
   cam_slug: >-
-    {% macro slug(e) -%}
+    {% macro cam_slug(e) -%}
       {{ e | replace('.', '_') | replace(':', '_') }}
     {%- endmacro %}
 
