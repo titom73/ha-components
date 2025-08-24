@@ -15,37 +15,37 @@ blueprint:
           device_class: temperature
 
     t1_helper:
-      name: Seuil T1 (input_number)
+      name: Température pour une protection moyenne
       selector:
         entity:
           domain: input_number
 
     t2_helper:
-      name: Seuil T2 (input_number, > T1)
+      name: Température pour une protection intense (T2 > T1)
       selector:
         entity:
           domain: input_number
 
     t3_helper:
-      name: Seuil T3 (input_number)
+      name: Température de retour a l etat initial (T3 < T1)
       selector:
         entity:
           domain: input_number
 
     scene_1:
-      name: Scene 1 (zone T1)
+      name: Scene à appliquer quand on atteint T1
       selector:
         entity:
           domain: scene
 
     scene_2:
-      name: Scene 2 (zone T2)
+      name: Scene à appliquer quand on atteint T2
       selector:
         entity:
           domain: scene
 
     covers:
-      name: Volets a piloter
+      name: Volets a piloter (Pour retour à l etat initial et ouverture si T<T3)
       selector:
         entity:
           domain: cover
