@@ -136,18 +136,17 @@ variables:
 
     Aujourd'hui :
 
-    {% if out_ok %}
+    {%- if out_ok %}
     • Température extérieure : {{ states(outdoor_sensor) }} °C
-    {% else %}
+    {%- else %}
     • Température extérieure : (indisponible)
-    {% endif %}
+    {%- endif %}
     • Maximum attendu de __{{ states('sensor.meteo_maison_accuweather_temperature_ressentie_maximum_aujourd_hui') }}__
-
-    {% if in_ok %}
+    {%- if in_ok %}
     • Température pièce principale : {{ states(indoor_sensor) }} °C
-    {% else %}
+    {%- else %}
     • Température pièce principale : (indisponible)
-    {% endif %}
+    {%- endif %}
     
     {{ alert_text }}
     
