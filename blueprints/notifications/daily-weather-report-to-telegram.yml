@@ -1,11 +1,9 @@
 blueprint:
-  name: "Daily Weather via Telegram (telegram_bot) — FR message + alerts + presence (+ date/heure unique)"
+  name: "Daily Weather via Telegram (telegram_bot) — FR message + alerts + presence"
   description: >
     Envoie un message météo en français (avec bannière d’alerte météo facultative) à un ou plusieurs chats Telegram,
     et attache des snapshots d’une ou plusieurs caméras.
-    Peut fonctionner :
-      - chaque jour à une heure (input_datetime time-only)
-      - une seule fois à une date+heure précise (input_datetime date+time).
+    Déclenche chaque jour à l'heure définie par un input_datetime (time-only).
     Ne s’exécute que si le booléen de présence choisi est sur ON (mode absence par défaut).
     Supporte la sélection d’un bot Telegram spécifique via config_entry_id.
 
@@ -14,15 +12,7 @@ blueprint:
   input:
     time_helper:
       name: Daily time helper (input_datetime, time-only)
-      description: "Si défini, déclenche chaque jour à cette heure."
-      selector:
-        entity:
-          domain: input_datetime
-
-    run_datetime:
-      name: (Optionnel) Date & heure unique (input_datetime)
-      description: "Si défini (date+time), déclenche une fois à cette date & heure."
-      default:
+      description: "Déclenche chaque jour à cette heure."
       selector:
         entity:
           domain: input_datetime
@@ -88,21 +78,8 @@ trace:
 
 trigger:
   # Daily trigger at the selected time (input_datetime time-only).
-  - id: daily_time
-    trigger: time
+  - trigger: time
     at: !input time_helper
-
-  # One-shot trigger at run_datetime (date+time).
-  # Fires when local YYYY-MM-DD HH:MM matches the helper value.
-  - id: run_once_datetime
-    trigger: template
-    value_template: >-
-      {% set e = run_dt %}
-      {% if not e %}
-        false
-      {% else %}
-        {{ now().strftime('%Y-%m-%d %H:%M') == (as_datetime(states(e)) | as_local).strftime('%Y-%m-%d %H:%M') }}
-      {% endif %}
 
 condition:
   # Only run if presence_boolean is ON
@@ -118,13 +95,12 @@ variables:
   tg_chats: !input chat_ids
   alert_ent: !input weather_alert_sensor
   tg_cfg: !input telegram_config_entry_id
-  run_dt: !input run_datetime
 
   # --- Alert banner in French (generalized from your original logic) ---
   alert_text: >-
     {% if alert_ent %}
       {% set ok = states(alert_ent) not in ['unknown','unavailable', none] %}
-      {% set attrs = states[alert_ent].attributes if ok else dict() %}
+      {% set attrs = states(alert_ent).attributes if ok else dict() %}
       {% set ignore = ['friendly_name','icon'] %}
       {% set order = ['Rouge','Orange','Jaune'] %}
       {% set emoji = {'Rouge':'🟥','Orange':'🟧','Jaune':'🟨','Vert':'🟩'} %}
@@ -143,7 +119,8 @@ variables:
       {%- endif %}
     {% endif %}
 
-  # --- weather_msg EXACTLY as you provided ---
+  # --- Weather message in French.
+  #     Blank lines around alert_text are included ONLY if alert_text is non-empty. ---
   weather_msg: |-
     {% set in_ok = states(indoor_sensor) not in ['unknown','unavailable', none] %}
     {% set out_ok = states(outdoor_sensor) not in ['unknown','unavailable', none] %}
@@ -162,9 +139,11 @@ variables:
     {%- else %}
     • Température pièce principale : (indisponible)
     {%- endif %}
-    
+    {% if alert_text|trim %}
+
     {{ alert_text }}
-    
+
+    {% endif %}
     Envoyé le {{ now().strftime('%d/%m/%Y %H:%M') }}.
 
 action:
