@@ -19,14 +19,6 @@ blueprint:
         entity:
           domain: input_datetime
 
-    run_datetime:
-      name: (Optionnel) Date & heure unique (input_datetime)
-      description: "Si défini (date+time), déclenche une fois à cette date & heure."
-      default:
-      selector:
-        entity:
-          domain: input_datetime
-
     presence_boolean:
       name: Booléen Présence/Absence
       description: >
@@ -91,16 +83,6 @@ trigger:
     trigger: time
     at: !input time_helper
 
-  - id: run_once_datetime
-    trigger: template
-    value_template: >-
-      {% set e = run_dt %}
-      {% if not e %}
-        false
-      {% else %}
-        {{ now().strftime('%Y-%m-%d %H:%M') == (as_datetime(states(e)) | as_local).strftime('%Y-%m-%d %H:%M') }}
-      {% endif %}
-
 condition:
   - condition: state
     entity_id: !input presence_boolean
@@ -114,7 +96,6 @@ variables:
   tg_chats: !input chat_ids
   alert_ent: !input weather_alert_sensor
   tg_cfg: !input telegram_config_entry_id
-  run_dt: !input run_datetime
 
   cam_slug: >-
     {% macro slug(e) -%}
