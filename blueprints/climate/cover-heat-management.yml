@@ -1,0 +1,214 @@
+blueprint:
+  name: Volets — Scènes par paliers de température + filtre Soleil + retour avant coucher
+  description: >
+    Applique une scène selon T1/T2, optionnellement seulement si le Soleil est
+    dans un intervalle d'azimut/élévation. Si la température reste sous T3
+    pendant ≥10 min, ouvre tous les volets. Sinon, 5 min avant le coucher
+    du soleil, restaure l'état initial des volets (snapshot).
+  domain: automation
+  input:
+    temp_sensor:
+      name: Capteur de température
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+    t1_helper:
+      name: Seuil T1 (input_number)
+      selector:
+        entity:
+          domain: input_number
+    t2_helper:
+      name: Seuil T2 (input_number, > T1)
+      selector:
+        entity:
+          domain: input_number
+    t3_helper:
+      name: Seuil T3 (input_number)
+      selector:
+        entity:
+          domain: input_number
+    scene_1:
+      name: Scène 1 (T1 ≤ Temp < T2)
+      selector:
+        entity:
+          domain: scene
+    scene_2:
+      name: Scène 2 (Temp ≥ T2)
+      selector:
+        entity:
+          domain: scene
+    covers:
+      name: Volets à piloter
+      selector:
+        entity:
+          domain: cover
+          multiple: true
+
+    # --- Filtre Soleil (optionnel) ---
+    sun_filter_enabled:
+      name: Activer le filtre Soleil (Azimut/Élévation)
+      default: false
+      selector:
+        boolean: {}
+    azimuth_min:
+      name: Azimut min (°)
+      description: 0–360, 0=N, 90=E, 180=S, 270=O
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 360
+          step: 1
+          mode: slider
+    azimuth_max:
+      name: Azimut max (°)
+      description: 0–360 (si min > max, l'intervalle est considéré circulaire)
+      default: 360
+      selector:
+        number:
+          min: 0
+          max: 360
+          step: 1
+          mode: slider
+    elevation_min:
+      name: Élévation min (°)
+      description: Angle au‑dessus de l’horizon (≈ -6 à 90)
+      default: -6
+      selector:
+        number:
+          min: -90
+          max: 90
+          step: 1
+          mode: slider
+    elevation_max:
+      name: Élévation max (°)
+      default: 90
+      selector:
+        number:
+          min: -90
+          max: 90
+          step: 1
+          mode: slider
+
+mode: restart
+max_exceeded: silent
+
+variables:
+  v_temp_sensor: !input temp_sensor
+  v_t1: !input t1_helper
+  v_t2: !input t2_helper
+  v_t3: !input t3_helper
+  v_scene_1: !input scene_1
+  v_scene_2: !input scene_2
+  v_covers: !input covers
+
+  v_sun_filter_enabled: !input sun_filter_enabled
+  v_az_min: !input azimuth_min
+  v_az_max: !input azimuth_max
+  v_el_min: !input elevation_min
+  v_el_max: !input elevation_max
+
+  T: "{{ states(v_temp_sensor) | float(9999) }}"
+  T1: "{{ states(v_t1) | float(9999) }}"
+  T2: "{{ states(v_t2) | float(9999) }}"
+  T3: "{{ states(v_t3) | float(-9999) }}"
+
+  # Mesures Soleil
+  SUN_AZ: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
+  SUN_EL: "{{ state_attr('sun.sun', 'elevation') | float(-90) }}"
+
+  # Test appartenance azimut dans [az_min, az_max] avec gestion du tour de cadran
+  SUN_AZ_OK: >-
+    {% set amin = v_az_min | float(0) %}
+    {% set amax = v_az_max | float(360) %}
+    {% set a = SUN_AZ %}
+    {% if amin <= amax %}
+      {{ a >= amin and a <= amax }}
+    {% else %}
+      {{ a >= amin or  a <= amax }}
+    {% endif %}
+
+  # Test élévation dans [el_min, el_max]
+  SUN_EL_OK: "{{ SUN_EL >= (v_el_min|float(-90)) and SUN_EL <= (v_el_max|float(90)) }}"
+  SUN_FILTER_PASSED: "{{ (not v_sun_filter_enabled) or (SUN_AZ_OK and SUN_EL_OK) }}"
+
+  # Scene snapshot (unique par instance via l'entity_id de l'automatisation)
+  SNAP_ID: "{{ (this.entity_id | replace('.', '_')) ~ '_snapshot' }}"
+  SNAP_ENTITY: "{{ 'scene.' ~ SNAP_ID }}"
+  SNAP_EXISTS: "{{ not states(SNAP_ENTITY) in ['unknown','unavailable',''] }}"
+
+trigger_variables:
+  t_sensor: !input temp_sensor
+  t_t3: !input t3_helper
+
+trigger:
+  # Réévaluations : température & seuils
+  - id: evaluate
+    platform: state
+    entity_id:
+      - !input temp_sensor
+      - !input t1_helper
+      - !input t2_helper
+
+  # Refroidissement < T3 pendant 10 min
+  - id: cooldown
+    platform: template
+    value_template: "{{ states(t_sensor)|float(9999) < states(t_t3)|float(9999) }}"
+    for: "00:10:00"
+
+  # Changements de position du soleil => réévaluer si filtre actif
+  - id: sun_change
+    platform: state
+    entity_id: sun.sun
+
+  # 5 min avant coucher du soleil
+  - id: pre_sunset_restore
+    platform: sun
+    event: sunset
+    offset: "-00:05:00"
+
+condition: []
+
+action:
+  - choose:
+      # 1) Restauration avant coucher (si pas déjà revenu sous T3)
+      - conditions: "{{ trigger.id == 'pre_sunset_restore' and (T >= T3) }}"
+        sequence:
+          - if: "{{ SNAP_EXISTS }}"
+            then:
+              - service: scene.turn_on
+                target: { entity_id: "{{ SNAP_ENTITY }}" }
+            else: []  # Rien si pas de snapshot (aucune scène n'a encore été appliquée)
+
+      # 2) Refroidissement durable < T3 -> ouvrir tous les volets
+      - conditions: "{{ trigger.id == 'cooldown' }}"
+        sequence:
+          - service: cover.open_cover
+            target:
+              entity_id: !input covers
+
+
+      # 3) Évaluations température / Soleil -> appliquer scènes
+      - conditions: >-
+          {{ trigger.id in ['evaluate','sun_change'] and SUN_FILTER_PASSED }}
+        sequence:
+          # Créer un snapshot une seule fois, juste avant la première application de scène
+          - if: "{{ not SNAP_EXISTS and (T >= T1) }}"
+            then:
+              - service: scene.create
+                data:
+                  scene_id: "{{ SNAP_ID }}"
+                  snapshot_entities: "{{ v_covers if v_covers is iterable else [v_covers] }}"
+          # Appliquer la scène selon T
+          - choose:
+              - conditions: "{{ T >= T2 and T2 > T1 }}"
+                sequence:
+                  - service: scene.turn_on
+                    target: { entity_id: !input scene_2 }
+              - conditions: "{{ T >= T1 and T1 < T2 }}"
+                sequence:
+                  - service: scene.turn_on
+                    target: { entity_id: !input scene_1 }
+            default: []
+    default: []
