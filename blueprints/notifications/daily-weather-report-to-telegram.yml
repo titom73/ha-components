@@ -120,17 +120,11 @@ variables:
   tg_cfg: !input telegram_config_entry_id
   run_dt: !input run_datetime
 
-  # Macro name and call name MATCH (Option A)
-  cam_slug: >-
-    {% macro cam_slug(e) -%}
-      {{ e | replace('.', '_') | replace(':', '_') }}
-    {%- endmacro %}
-
   # --- Alert banner in French (generalized from your original logic) ---
   alert_text: >-
     {% if alert_ent %}
       {% set ok = states(alert_ent) not in ['unknown','unavailable', none] %}
-      {% set attrs = states(alert_ent).attributes if ok else dict() %}
+      {% set attrs = states[alert_ent].attributes if ok else dict() %}
       {% set ignore = ['friendly_name','icon'] %}
       {% set order = ['Rouge','Orange','Jaune'] %}
       {% set emoji = {'Rouge':'🟥','Orange':'🟧','Jaune':'🟨','Vert':'🟩'} %}
@@ -149,7 +143,7 @@ variables:
       {%- endif %}
     {% endif %}
 
-  # --- weather_msg EXACTLY as you requested (keeps Jinja trim markers) ---
+  # --- weather_msg EXACTLY as you provided ---
   weather_msg: |-
     {% set in_ok = states(indoor_sensor) not in ['unknown','unavailable', none] %}
     {% set out_ok = states(outdoor_sensor) not in ['unknown','unavailable', none] %}
@@ -199,7 +193,11 @@ action:
       sequence:
         - variables:
             cam_entity: "{{ repeat.item }}"
+            # Define AND call the macro in the SAME template (avoids 'str is not callable')
             file_path: >-
+              {% macro cam_slug(e) -%}
+                {{ e | replace('.', '_') | replace(':', '_') }}
+              {%- endmacro -%}
               {{ '/config/www/snapshots/' ~ cam_slug(cam_entity) ~ '_' ~ ts ~ '.jpg' }}
 
         - alias: "Create snapshot (use data.entity_id instead of target)"
