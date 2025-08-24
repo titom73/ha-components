@@ -15,37 +15,37 @@ blueprint:
           device_class: temperature
 
     t1_helper:
-      name: Température pour une protection moyenne
+      name: Seuil T1 (input_number)
       selector:
         entity:
           domain: input_number
 
     t2_helper:
-      name: Température pour une protection intense (T2 > T1)
+      name: Seuil T2 (input_number, > T1)
       selector:
         entity:
           domain: input_number
 
     t3_helper:
-      name: Température de retour a l etat initial (T3 < T1)
+      name: Seuil T3 (input_number)
       selector:
         entity:
           domain: input_number
 
     scene_1:
-      name: Scene à appliquer quand on atteint T1
+      name: Scene 1 (zone T1)
       selector:
         entity:
           domain: scene
 
     scene_2:
-      name: Scene à appliquer quand on atteint T2
+      name: Scene 2 (zone T2)
       selector:
         entity:
           domain: scene
 
     covers:
-      name: Volets a piloter (Pour retour à l etat initial et ouverture si T<T3)
+      name: Volets a piloter
       selector:
         entity:
           domain: cover
@@ -196,7 +196,6 @@ trigger_variables:
   t_t3: !input t3_helper
 
 trigger:
-  # Reevaluation temperature & seuils
   - id: evaluate
     platform: state
     entity_id:
@@ -204,18 +203,15 @@ trigger:
       - !input t1_helper
       - !input t2_helper
 
-  # Refroidissement < T3 pendant 10 min
   - id: cooldown
     platform: template
     value_template: "{{ states(t_sensor)|float(9999) < states(t_t3)|float(9999) }}"
     for: "00:10:00"
 
-  # Mouvement du soleil (utile si filtre actif)
   - id: sun_change
     platform: state
     entity_id: sun.sun
 
-  # 5 min avant coucher du soleil
   - id: pre_sunset_restore
     platform: sun
     event: sunset
@@ -225,55 +221,56 @@ condition: []
 
 action:
   - choose:
-      # 1) Restauration avant coucher (si pas deja revenu sous T3)
+      # 1) Restaurer etat initial 5 min avant coucher (si pas deja < T3)
       - conditions: "{{ trigger.id == 'pre_sunset_restore' and (T >= T3) }}"
         sequence:
           - if: "{{ SNAP_EXISTS }}"
             then:
-              - service: scene.turn_on
+              - action: scene.turn_on
                 target:
                   entity_id: "{{ SNAP_ENTITY }}"
             else: []
 
-      # 2) Refroidissement durable < T3 -> ouvrir volets + actions T3
+      # 2) T < T3 pendant 10 min -> ouvrir volets + actions T3
       - conditions: "{{ trigger.id == 'cooldown' }}"
         sequence:
-          - service: cover.open_cover
+          - action: cover.open_cover
             target:
               entity_id: !input covers
-          - choose:
-              default: !input on_t3_actions
+          - alias: Actions supplementaires T3
+            sequence: !input on_t3_actions
 
-      # 3) Evaluation avec hysteresis et filtre Soleil
+      # 3) Evaluation (hysteresis + filtre Soleil) -> scenes + actions T1/T2
       - conditions: "{{ (trigger.id == 'evaluate') or (trigger.id == 'sun_change' and v_sun_filter_enabled) }}"
         sequence:
           - condition: template
             value_template: "{{ SUN_FILTER_PASSED }}"
 
-          # Creer un snapshot une seule fois, avant la 1ere application de scene
+          # Snapshot juste avant la 1ere scene
           - if: "{{ not SNAP_EXISTS and (T >= (T1 + H1)) }}"
             then:
-              - service: scene.create
+              - action: scene.create
                 data:
                   scene_id: "{{ SNAP_ID }}"
                   snapshot_entities: !input covers
 
-          # Choix de la scene avec hysteresis
+          # Scene 2 (haut) avec hysteresis
           - choose:
               - conditions: "{{ APPLY_SCENE2 }}"
                 sequence:
-                  - service: scene.turn_on
+                  - action: scene.turn_on
                     target:
                       entity_id: !input scene_2
-                  - choose:
-                      default: !input on_t2_actions
+                  - alias: Actions supplementaires T2
+                    sequence: !input on_t2_actions
 
+              # Scene 1 (milieu) avec hysteresis
               - conditions: "{{ APPLY_SCENE1 }}"
                 sequence:
-                  - service: scene.turn_on
+                  - action: scene.turn_on
                     target:
                       entity_id: !input scene_1
-                  - choose:
-                      default: !input on_t1_actions
+                  - alias: Actions supplementaires T1
+                    sequence: !input on_t1_actions
             default: []
     default: []
