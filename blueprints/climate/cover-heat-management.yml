@@ -1,14 +1,14 @@
 blueprint:
-  name: Volets — Scènes par paliers de température + filtre Soleil + retour avant coucher
+  name: Volets - Scenes par paliers de temperature + filtre Soleil + retour avant coucher
   description: >
-    Applique une scène selon T1/T2, optionnellement seulement si le Soleil est
-    dans un intervalle d'azimut/élévation. Si la température reste sous T3
-    pendant ≥10 min, ouvre tous les volets. Sinon, 5 min avant le coucher
-    du soleil, restaure l'état initial des volets (snapshot).
+    Applique une scene selon T1/T2, optionnellement seulement si le Soleil est
+    dans un intervalle d azimut/elevation. Si la temperature reste sous T3
+    pendant >=10 min, ouvre tous les volets. Sinon, 5 min avant le coucher
+    du soleil, restaure l etat initial des volets (snapshot).
   domain: automation
   input:
     temp_sensor:
-      name: Capteur de température
+      name: Capteur de temperature
       selector:
         entity:
           domain: sensor
@@ -29,17 +29,17 @@ blueprint:
         entity:
           domain: input_number
     scene_1:
-      name: Scène 1 (T1 ≤ Temp < T2)
+      name: Scene 1 (T1 <= Temp < T2)
       selector:
         entity:
           domain: scene
     scene_2:
-      name: Scène 2 (Temp ≥ T2)
+      name: Scene 2 (Temp >= T2)
       selector:
         entity:
           domain: scene
     covers:
-      name: Volets à piloter
+      name: Volets a piloter
       selector:
         entity:
           domain: cover
@@ -47,13 +47,13 @@ blueprint:
 
     # --- Filtre Soleil (optionnel) ---
     sun_filter_enabled:
-      name: Activer le filtre Soleil (Azimut/Élévation)
+      name: Activer le filtre Soleil (Azimut/Elevation)
       default: false
       selector:
         boolean: {}
     azimuth_min:
-      name: Azimut min (°)
-      description: 0–360, 0=N, 90=E, 180=S, 270=O
+      name: Azimut min (deg)
+      description: 0-360, 0=N, 90=E, 180=S, 270=O
       default: 0
       selector:
         number:
@@ -62,8 +62,8 @@ blueprint:
           step: 1
           mode: slider
     azimuth_max:
-      name: Azimut max (°)
-      description: 0–360 (si min > max, l'intervalle est considéré circulaire)
+      name: Azimut max (deg)
+      description: 0-360 (si min > max, l intervalle est considere circulaire)
       default: 360
       selector:
         number:
@@ -72,8 +72,8 @@ blueprint:
           step: 1
           mode: slider
     elevation_min:
-      name: Élévation min (°)
-      description: Angle au‑dessus de l’horizon (≈ -6 à 90)
+      name: Elevation min (deg)
+      description: Angle au-dessus de l horizon (-6 a 90)
       default: -6
       selector:
         number:
@@ -82,7 +82,7 @@ blueprint:
           step: 1
           mode: slider
     elevation_max:
-      name: Élévation max (°)
+      name: Elevation max (deg)
       default: 90
       selector:
         number:
@@ -129,11 +129,11 @@ variables:
       {{ a >= amin or  a <= amax }}
     {% endif %}
 
-  # Test élévation dans [el_min, el_max]
+  # Test elevation dans [el_min, el_max]
   SUN_EL_OK: "{{ SUN_EL >= (v_el_min|float(-90)) and SUN_EL <= (v_el_max|float(90)) }}"
   SUN_FILTER_PASSED: "{{ (not v_sun_filter_enabled) or (SUN_AZ_OK and SUN_EL_OK) }}"
 
-  # Scene snapshot (unique par instance via l'entity_id de l'automatisation)
+  # Scene snapshot (unique par instance via l entity_id de l automatisation)
   SNAP_ID: "{{ (this.entity_id | replace('.', '_')) ~ '_snapshot' }}"
   SNAP_ENTITY: "{{ 'scene.' ~ SNAP_ID }}"
   SNAP_EXISTS: "{{ not states(SNAP_ENTITY) in ['unknown','unavailable',''] }}"
@@ -143,7 +143,7 @@ trigger_variables:
   t_t3: !input t3_helper
 
 trigger:
-  # Réévaluations : température & seuils
+  # Reevaluations : temperature & seuils
   - id: evaluate
     platform: state
     entity_id:
@@ -157,7 +157,7 @@ trigger:
     value_template: "{{ states(t_sensor)|float(9999) < states(t_t3)|float(9999) }}"
     for: "00:10:00"
 
-  # Changements de position du soleil => réévaluer si filtre actif
+  # Changements de position du soleil => reevaluer si filtre actif
   - id: sun_change
     platform: state
     entity_id: sun.sun
@@ -172,14 +172,14 @@ condition: []
 
 action:
   - choose:
-      # 1) Restauration avant coucher (si pas déjà revenu sous T3)
+      # 1) Restauration avant coucher (si pas deja revenu sous T3)
       - conditions: "{{ trigger.id == 'pre_sunset_restore' and (T >= T3) }}"
         sequence:
           - if: "{{ SNAP_EXISTS }}"
             then:
               - service: scene.turn_on
                 target: { entity_id: "{{ SNAP_ENTITY }}" }
-            else: []  # Rien si pas de snapshot (aucune scène n'a encore été appliquée)
+            else: []
 
       # 2) Refroidissement durable < T3 -> ouvrir tous les volets
       - conditions: "{{ trigger.id == 'cooldown' }}"
@@ -188,19 +188,18 @@ action:
             target:
               entity_id: !input covers
 
-
-      # 3) Évaluations température / Soleil -> appliquer scènes
+      # 3) Evaluations temperature / Soleil -> appliquer scenes
       - conditions: >-
           {{ trigger.id in ['evaluate','sun_change'] and SUN_FILTER_PASSED }}
         sequence:
-          # Créer un snapshot une seule fois, juste avant la première application de scène
+          # Creer un snapshot une seule fois, juste avant la premiere application de scene
           - if: "{{ not SNAP_EXISTS and (T >= T1) }}"
             then:
               - service: scene.create
                 data:
                   scene_id: "{{ SNAP_ID }}"
                   snapshot_entities: "{{ v_covers if v_covers is iterable else [v_covers] }}"
-          # Appliquer la scène selon T
+          # Appliquer la scene selon T
           - choose:
               - conditions: "{{ T >= T2 and T2 > T1 }}"
                 sequence:
