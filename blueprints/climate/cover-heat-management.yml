@@ -1,51 +1,59 @@
 blueprint:
-  name: Volets - Scenes par paliers de temperature + filtre Soleil + retour avant coucher (+ actions T1/T2/T3 + hysteresis)
+  name: Volets - Scenes par paliers de temperature + filtre Soleil + retour avant coucher (+ actions T1/T2/T3 + hysteresis + garde T3)
   description: >
     Applique une scene selon T1/T2 avec hysteresis (H1/H2). Si la temperature reste sous T3
-    pendant >=10 min, ouvre les volets. 5 min avant le coucher du soleil, restaure l etat initial.
-    Filtre Soleil optionnel (azimut/elevation) et actions libres a T1/T2/T3.
+    pendant >=10 min, ouvre les volets UNIQUEMENT si T1 ou T2 a deja ete applique (garde T3).
+    5 min avant le coucher du soleil, restaure l etat initial. Filtre Soleil optionnel et
+    actions libres a T1/T2/T3.
   domain: automation
 
   input:
     temp_sensor:
       name: Capteur de temperature
+      description: Capteur principal de temperature (en deg C) utilise pour la decision.
       selector:
         entity:
           domain: sensor
           device_class: temperature
 
     t1_helper:
-      name: Seuil T1 (input_number)
+      name: Temperature pour une protection moyenne
+      description: Seuil T1. Quand la temperature atteint T1 (avec hysteresis), la Scene 1 peut s appliquer.
       selector:
         entity:
           domain: input_number
 
     t2_helper:
-      name: Seuil T2 (input_number, > T1)
+      name: Temperature pour une protection intense (T2 > T1)
+      description: Seuil T2. Doit etre strictement superieur a T1. Quand la temperature atteint T2 (avec hysteresis), la Scene 2 peut s appliquer.
       selector:
         entity:
           domain: input_number
 
     t3_helper:
-      name: Seuil T3 (input_number)
+      name: Temperature de retour a l etat initial (T3 < T1)
+      description: Seuil T3. Doit etre strictement inferieur a T1. Si Temp < T3 pendant 10 min et que le garde T3 est arme, on ouvre les volets.
       selector:
         entity:
           domain: input_number
 
     scene_1:
-      name: Scene 1 (zone T1)
+      name: Scene a appliquer quand on atteint T1
+      description: Scene appliquee pour la zone T1 (protection moyenne) avec hysteresis.
       selector:
         entity:
           domain: scene
 
     scene_2:
-      name: Scene 2 (zone T2)
+      name: Scene a appliquer quand on atteint T2
+      description: Scene appliquee pour la zone T2 (protection intense) avec hysteresis.
       selector:
         entity:
           domain: scene
 
     covers:
-      name: Volets a piloter
+      name: Volets a piloter (Pour retour a l etat initial et ouverture si T<T3)
+      description: Un ou plusieurs volets. Utilises pour le snapshot/restore avant coucher et pour l ouverture a T3.
       selector:
         entity:
           domain: cover
@@ -54,7 +62,7 @@ blueprint:
     # --- Hysteresis (deg C) ---
     hys_t1:
       name: Hysteresis autour de T1 (deg C)
-      description: Mettre 0 pour desactiver
+      description: Marge autour de T1 pour eviter les bascules rapides. Mettre 0 pour desactiver.
       default: 0.3
       selector:
         number:
@@ -64,7 +72,7 @@ blueprint:
           mode: slider
     hys_t2:
       name: Hysteresis autour de T2 (deg C)
-      description: Mettre 0 pour desactiver
+      description: Marge autour de T2 pour eviter les bascules rapides. Mettre 0 pour desactiver.
       default: 0.3
       selector:
         number:
@@ -76,12 +84,13 @@ blueprint:
     # --- Filtre Soleil (optionnel) ---
     sun_filter_enabled:
       name: Activer le filtre Soleil (Azimut/Elevation)
+      description: Si active, les scenes T1/T2 ne s appliquent que si le soleil est dans la fenetre azimut/elevation definie.
       default: false
       selector:
         boolean: {}
     azimuth_min:
       name: Azimut min (deg)
-      description: 0-360, 0=N, 90=E, 180=S, 270=O
+      description: Borne inferieure d azimut (0-360; 0=N, 90=E, 180=S, 270=O).
       default: 0
       selector:
         number:
@@ -91,7 +100,7 @@ blueprint:
           mode: slider
     azimuth_max:
       name: Azimut max (deg)
-      description: 0-360 (si min > max, l intervalle est considere circulaire)
+      description: Borne superieure d azimut (0-360). Si min > max, la fenetre est circulaire (passe par 0).
       default: 360
       selector:
         number:
@@ -101,7 +110,7 @@ blueprint:
           mode: slider
     elevation_min:
       name: Elevation min (deg)
-      description: Angle au-dessus de l horizon (-6 a 90)
+      description: Borne inferieure d elevation (angle au-dessus de l horizon, env. -6 a 90).
       default: -6
       selector:
         number:
@@ -111,6 +120,7 @@ blueprint:
           mode: slider
     elevation_max:
       name: Elevation max (deg)
+      description: Borne superieure d elevation (angle au-dessus de l horizon).
       default: 90
       selector:
         number:
@@ -119,19 +129,30 @@ blueprint:
           step: 1
           mode: slider
 
+    # --- Garde-fou T3 (obligatoire) ---
+    t3_guard_helper:
+      name: Drapeau T3 arme (input_boolean)
+      description: Passe a ON quand Scene 1 ou Scene 2 s applique. T3 (ouverture) ne s execute que si ce drapeau est ON.
+      selector:
+        entity:
+          domain: input_boolean
+
     # --- Actions supplementaires (optionnelles) ---
     on_t1_actions:
       name: Actions supplementaires a T1 (apres Scene 1)
+      description: Liste d actions a executer apres l application de Scene 1 (facultatif).
       default: []
       selector:
         action: {}
     on_t2_actions:
       name: Actions supplementaires a T2 (apres Scene 2)
+      description: Liste d actions a executer apres l application de Scene 2 (facultatif).
       default: []
       selector:
         action: {}
     on_t3_actions:
       name: Actions supplementaires a T3 (apres ouverture volets)
+      description: Liste d actions a executer apres l ouverture des volets quand Temp < T3 pendant 10 min (facultatif).
       default: []
       selector:
         action: {}
@@ -157,6 +178,8 @@ variables:
   v_el_min: !input elevation_min
   v_el_max: !input elevation_max
 
+  v_t3_guard: !input t3_guard_helper
+
   T: "{{ states(v_temp_sensor) | float(9999) }}"
   T1: "{{ states(v_t1) | float(9999) }}"
   T2: "{{ states(v_t2) | float(9999) }}"
@@ -164,11 +187,10 @@ variables:
   H1: "{{ v_h1 | float(0) }}"
   H2: "{{ v_h2 | float(0) }}"
 
-  # Mesures Soleil
+  # Soleil
   SUN_AZ: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
   SUN_EL: "{{ state_attr('sun.sun', 'elevation') | float(-90) }}"
 
-  # Azimut dans [az_min, az_max] (gestion du tour de cadran)
   SUN_AZ_OK: >-
     {% set amin = v_az_min | float(0) %}
     {% set amax = v_az_max | float(360) %}
@@ -178,18 +200,20 @@ variables:
     {% else %}
       {{ a >= amin or a <= amax }}
     {% endif %}
-  # Elevation dans [el_min, el_max]
   SUN_EL_OK: "{{ SUN_EL >= (v_el_min|float(-90)) and SUN_EL <= (v_el_max|float(90)) }}"
   SUN_FILTER_PASSED: "{{ (not v_sun_filter_enabled) or (SUN_AZ_OK and SUN_EL_OK) }}"
 
-  # Conditions d application avec hysteresis
+  # Hysteresis
   APPLY_SCENE2: "{{ (T >= (T2 + H2)) and (T2 > T1) }}"
   APPLY_SCENE1: "{{ (T >= (T1 + H1)) and (T < (T2 - H2)) and (T2 > T1) and ((T2 - H2) > (T1 + H1)) }}"
 
-  # Scene snapshot (ID derive de l entity_id)
+  # Snapshot
   SNAP_ID: "{{ (this.entity_id | replace('.', '_')) ~ '_snapshot' }}"
   SNAP_ENTITY: "{{ 'scene.' ~ SNAP_ID }}"
   SNAP_EXISTS: "{{ not states(SNAP_ENTITY) in ['unknown','unavailable',''] }}"
+
+  # Garde-fou T3
+  T3_GUARD_OK: "{{ is_state(v_t3_guard, 'on') }}"
 
 trigger_variables:
   t_sensor: !input temp_sensor
@@ -221,26 +245,34 @@ condition: []
 
 action:
   - choose:
-      # 1) Restaurer etat initial 5 min avant coucher (si pas deja < T3)
+      # 1) Restauration avant coucher (et desarmer le garde-fou)
       - conditions: "{{ trigger.id == 'pre_sunset_restore' and (T >= T3) }}"
         sequence:
           - if: "{{ SNAP_EXISTS }}"
             then:
-              - action: scene.turn_on
+              - service: scene.turn_on
                 target:
                   entity_id: "{{ SNAP_ENTITY }}"
-            else: []
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input t3_guard_helper
 
-      # 2) T < T3 pendant 10 min -> ouvrir volets + actions T3
+      # 2) T < T3 pendant 10 min -> ouvrir volets SEULEMENT si garde arme
       - conditions: "{{ trigger.id == 'cooldown' }}"
         sequence:
-          - action: cover.open_cover
+          - condition: template
+            value_template: "{{ T3_GUARD_OK }}"
+          - service: cover.open_cover
             target:
               entity_id: !input covers
           - alias: Actions supplementaires T3
-            sequence: !input on_t3_actions
+            choose: []
+            default: !input on_t3_actions
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input t3_guard_helper
 
-      # 3) Evaluation (hysteresis + filtre Soleil) -> scenes + actions T1/T2
+      # 3) Evaluation (hysteresis + filtre Soleil) -> scenes + armer garde + actions T1/T2
       - conditions: "{{ (trigger.id == 'evaluate') or (trigger.id == 'sun_change' and v_sun_filter_enabled) }}"
         sequence:
           - condition: template
@@ -249,28 +281,35 @@ action:
           # Snapshot juste avant la 1ere scene
           - if: "{{ not SNAP_EXISTS and (T >= (T1 + H1)) }}"
             then:
-              - action: scene.create
+              - service: scene.create
                 data:
                   scene_id: "{{ SNAP_ID }}"
                   snapshot_entities: !input covers
 
-          # Scene 2 (haut) avec hysteresis
+          # Choix scene et armement garde-fou
           - choose:
               - conditions: "{{ APPLY_SCENE2 }}"
                 sequence:
-                  - action: scene.turn_on
+                  - service: scene.turn_on
                     target:
                       entity_id: !input scene_2
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: !input t3_guard_helper
                   - alias: Actions supplementaires T2
-                    sequence: !input on_t2_actions
+                    choose: []
+                    default: !input on_t2_actions
 
-              # Scene 1 (milieu) avec hysteresis
               - conditions: "{{ APPLY_SCENE1 }}"
                 sequence:
-                  - action: scene.turn_on
+                  - service: scene.turn_on
                     target:
                       entity_id: !input scene_1
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: !input t3_guard_helper
                   - alias: Actions supplementaires T1
-                    sequence: !input on_t1_actions
+                    choose: []
+                    default: !input on_t1_actions
             default: []
     default: []
