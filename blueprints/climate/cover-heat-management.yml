@@ -17,21 +17,26 @@ blueprint:
 
     t1_helper:
       name: Temperature pour une protection moyenne
-      description: Seuil T1. Quand la temperature atteint T1 (avec hysteresis), la Scene 1 peut s appliquer.
+      description: >
+        Seuil T1. Quand la temperature atteint T1 (avec hysteresis), la Scene 1 peut s appliquer.
       selector:
         entity:
           domain: input_number
 
     t2_helper:
       name: Temperature pour une protection intense (T2 > T1)
-      description: Seuil T2. Doit etre strictement superieur a T1. Quand la temperature atteint T2 (avec hysteresis), la Scene 2 peut s appliquer.
+      description: >
+        Seuil T2. Doit etre strictement superieur a T1. Quand la temperature atteint T2 (avec hysteresis),
+        la Scene 2 peut s appliquer.
       selector:
         entity:
           domain: input_number
 
     t3_helper:
       name: Temperature de retour a l etat initial (T3 < T1)
-      description: Seuil T3. Doit etre strictement inferieur a T1. Si Temp < T3 pendant 10 min et que le garde T3 est arme, on ouvre les volets.
+      description: >
+        Seuil T3. Doit etre strictement inferieur a T1. Si Temp < T3 pendant 10 min et que le
+        garde T3 est arme, on ouvre les volets.
       selector:
         entity:
           domain: input_number
@@ -52,7 +57,8 @@ blueprint:
 
     covers:
       name: Volets a piloter (Pour retour a l etat initial et ouverture si T<T3)
-      description: Un ou plusieurs volets. Utilises pour le snapshot/restore avant coucher et pour l ouverture a T3.
+      description: >
+        Un ou plusieurs volets. Utilises pour le snapshot/restore avant coucher et pour l ouverture a T3.
       selector:
         entity:
           domain: cover
@@ -83,7 +89,8 @@ blueprint:
     # --- Filtre Soleil (optionnel) ---
     sun_filter_enabled:
       name: Activer le filtre Soleil (Azimut/Elevation)
-      description: Si active, les scenes T1/T2 ne s appliquent que si le soleil est dans la fenetre azimut/elevation definie.
+      description: >
+        Si active, les scenes T1/T2 ne s appliquent que si le soleil est dans la fenetre azimut/elevation definie.
       default: false
       selector:
         boolean: {}
@@ -99,7 +106,8 @@ blueprint:
           mode: slider
     azimuth_max:
       name: Azimut max (deg)
-      description: Borne superieure d azimut (0-360). Si min > max, la fenetre est circulaire (passe par 0).
+      description: >
+        Borne superieure d azimut (0-360). Si min > max, la fenetre est circulaire (passe par 0).
       default: 360
       selector:
         number:
@@ -139,7 +147,8 @@ blueprint:
     # --- Etat de zone (obligatoire) ---
     zone_state_helper:
       name: Etat de zone T1/T2 (input_select)
-      description: Input_select avec options EXACTES: none, t1, t2. Sert a n executer T1/T2 qu une seule fois a l entree de zone.
+      description: >
+        Input_select avec options EXACTES : none, t1, t2. Sert a n executer T1/T2 qu une seule fois a l entree de zone.
       selector:
         entity:
           domain: input_select
@@ -256,7 +265,7 @@ condition: []
 
 action:
   - choose:
-      # 1) Restore avant coucher: snapshot -> OFF garde -> zone = none (si pas deja < T3)
+      # 1) Restore avant coucher (si pas deja < T3) + desarmer garde + zone = none
       - conditions: "{{ trigger.id == 'pre_sunset_restore' and (T >= T3) }}"
         sequence:
           - if: "{{ SNAP_EXISTS }}"
@@ -281,7 +290,8 @@ action:
           - service: cover.open_cover
             target:
               entity_id: !input covers
-          - !input on_t3_actions
+          - alias: Actions supplementaires T3
+            sequence: !input on_t3_actions
           - service: input_boolean.turn_off
             target:
               entity_id: !input t3_guard_helper
@@ -291,13 +301,13 @@ action:
             data:
               option: "none"
 
-      # 3) Evaluation: filtrer Soleil -> si entree zone t2/t1 seulement, alors executer scene+actions et MAJ etats
+      # 3) Evaluation (hysteresis + filtre Soleil) -> scenes + armer garde + actions T1/T2
       - conditions: "{{ (trigger.id == 'evaluate') or (trigger.id == 'sun_change' and v_sun_filter_enabled) }}"
         sequence:
           - condition: template
             value_template: "{{ SUN_FILTER_PASSED }}"
 
-          # Snapshot juste avant la 1ere scene de la journee
+          # Snapshot juste avant la 1ere scene
           - if: "{{ not SNAP_EXISTS and (T >= (T1 + H1)) }}"
             then:
               - service: scene.create
@@ -305,10 +315,9 @@ action:
                   scene_id: "{{ SNAP_ID }}"
                   snapshot_entities: !input covers
 
-          # Entree en T2 -> une seule fois
+          # Entree en T2 -> unique
           - choose:
-              - conditions: >
-                  {{ APPLY_SCENE2 and ZONE_CUR != 't2' }}
+              - conditions: "{{ APPLY_SCENE2 and ZONE_CUR != 't2' }}"
                 sequence:
                   - service: scene.turn_on
                     target:
@@ -316,16 +325,16 @@ action:
                   - service: input_boolean.turn_on
                     target:
                       entity_id: !input t3_guard_helper
-                  - !input on_t2_actions
+                  - alias: Actions supplementaires T2
+                    sequence: !input on_t2_actions
                   - service: input_select.select_option
                     target:
                       entity_id: !input zone_state_helper
                     data:
                       option: "t2"
 
-              # Entree en T1 -> une seule fois
-              - conditions: >
-                  {{ APPLY_SCENE1 and ZONE_CUR != 't1' }}
+              # Entree en T1 -> unique
+              - conditions: "{{ APPLY_SCENE1 and ZONE_CUR != 't1' }}"
                 sequence:
                   - service: scene.turn_on
                     target:
@@ -333,7 +342,8 @@ action:
                   - service: input_boolean.turn_on
                     target:
                       entity_id: !input t3_guard_helper
-                  - !input on_t1_actions
+                  - alias: Actions supplementaires T1
+                    sequence: !input on_t1_actions
                   - service: input_select.select_option
                     target:
                       entity_id: !input zone_state_helper
