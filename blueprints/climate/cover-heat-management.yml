@@ -1,10 +1,9 @@
 blueprint:
-  name: Volets - Scenes par paliers de temperature + filtre Soleil + retour avant coucher (+ actions T1/T2/T3 + hysteresis + garde T3)
+  name: Volets - Scenes par paliers de temperature + filtre Soleil + retour avant coucher (+ actions T1/T2/T3 + hysteresis + garde T3 + zone state)
   description: >
-    Applique une scene selon T1/T2 avec hysteresis (H1/H2). Si la temperature reste sous T3
-    pendant >=10 min, ouvre les volets UNIQUEMENT si T1 ou T2 a deja ete applique (garde T3).
-    5 min avant le coucher du soleil, restaure l etat initial. Filtre Soleil optionnel et
-    actions libres a T1/T2/T3.
+    Scenes T1/T2 avec hysteresis (H1/H2) et filtre Soleil. T3 (ouverture) uniquement si T1/T2
+    a deja ete applique (garde T3). 5 min avant le coucher du soleil: restore snapshot et reset zone.
+    Les actions T1/T2 ne s executent qu une seule fois par entree de zone (input_select none/t1/t2).
   domain: automation
 
   input:
@@ -137,6 +136,14 @@ blueprint:
         entity:
           domain: input_boolean
 
+    # --- Etat de zone (obligatoire) ---
+    zone_state_helper:
+      name: Etat de zone T1/T2 (input_select)
+      description: Input_select avec options EXACTES: none, t1, t2. Sert a n executer T1/T2 qu une seule fois a l entree de zone.
+      selector:
+        entity:
+          domain: input_select
+
     # --- Actions supplementaires (optionnelles) ---
     on_t1_actions:
       name: Actions supplementaires a T1 (apres Scene 1)
@@ -179,6 +186,7 @@ variables:
   v_el_max: !input elevation_max
 
   v_t3_guard: !input t3_guard_helper
+  v_zone_state: !input zone_state_helper
 
   T: "{{ states(v_temp_sensor) | float(9999) }}"
   T1: "{{ states(v_t1) | float(9999) }}"
@@ -190,7 +198,6 @@ variables:
   # Soleil
   SUN_AZ: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
   SUN_EL: "{{ state_attr('sun.sun', 'elevation') | float(-90) }}"
-
   SUN_AZ_OK: >-
     {% set amin = v_az_min | float(0) %}
     {% set amax = v_az_max | float(360) %}
@@ -212,8 +219,11 @@ variables:
   SNAP_ENTITY: "{{ 'scene.' ~ SNAP_ID }}"
   SNAP_EXISTS: "{{ not states(SNAP_ENTITY) in ['unknown','unavailable',''] }}"
 
-  # Garde-fou T3
+  # Gardes
   T3_GUARD_OK: "{{ is_state(v_t3_guard, 'on') }}"
+  ZONE_CUR: >-
+    {% set z = states(v_zone_state) %}
+    {{ 'none' if z in ['unknown','unavailable',''] else z }}
 
 trigger_variables:
   t_sensor: !input temp_sensor
@@ -226,6 +236,7 @@ trigger:
       - !input temp_sensor
       - !input t1_helper
       - !input t2_helper
+      - !input zone_state_helper
 
   - id: cooldown
     platform: template
@@ -245,7 +256,7 @@ condition: []
 
 action:
   - choose:
-      # 1) Restauration avant coucher (et desarmer le garde-fou)
+      # 1) Restore avant coucher: snapshot -> OFF garde -> zone = none (si pas deja < T3)
       - conditions: "{{ trigger.id == 'pre_sunset_restore' and (T >= T3) }}"
         sequence:
           - if: "{{ SNAP_EXISTS }}"
@@ -256,8 +267,13 @@ action:
           - service: input_boolean.turn_off
             target:
               entity_id: !input t3_guard_helper
+          - service: input_select.select_option
+            target:
+              entity_id: !input zone_state_helper
+            data:
+              option: "none"
 
-      # 2) T < T3 pendant 10 min -> ouvrir volets SEULEMENT si garde arme
+      # 2) T < T3 pendant 10 min -> ouvrir volets SEULEMENT si garde arme -> OFF garde -> zone = none
       - conditions: "{{ trigger.id == 'cooldown' }}"
         sequence:
           - condition: template
@@ -265,20 +281,23 @@ action:
           - service: cover.open_cover
             target:
               entity_id: !input covers
-          - alias: Actions supplementaires T3
-            choose: []
-            default: !input on_t3_actions
+          - !input on_t3_actions
           - service: input_boolean.turn_off
             target:
               entity_id: !input t3_guard_helper
+          - service: input_select.select_option
+            target:
+              entity_id: !input zone_state_helper
+            data:
+              option: "none"
 
-      # 3) Evaluation (hysteresis + filtre Soleil) -> scenes + armer garde + actions T1/T2
+      # 3) Evaluation: filtrer Soleil -> si entree zone t2/t1 seulement, alors executer scene+actions et MAJ etats
       - conditions: "{{ (trigger.id == 'evaluate') or (trigger.id == 'sun_change' and v_sun_filter_enabled) }}"
         sequence:
           - condition: template
             value_template: "{{ SUN_FILTER_PASSED }}"
 
-          # Snapshot juste avant la 1ere scene
+          # Snapshot juste avant la 1ere scene de la journee
           - if: "{{ not SNAP_EXISTS and (T >= (T1 + H1)) }}"
             then:
               - service: scene.create
@@ -286,9 +305,10 @@ action:
                   scene_id: "{{ SNAP_ID }}"
                   snapshot_entities: !input covers
 
-          # Choix scene et armement garde-fou
+          # Entree en T2 -> une seule fois
           - choose:
-              - conditions: "{{ APPLY_SCENE2 }}"
+              - conditions: >
+                  {{ APPLY_SCENE2 and ZONE_CUR != 't2' }}
                 sequence:
                   - service: scene.turn_on
                     target:
@@ -296,11 +316,16 @@ action:
                   - service: input_boolean.turn_on
                     target:
                       entity_id: !input t3_guard_helper
-                  - alias: Actions supplementaires T2
-                    choose: []
-                    default: !input on_t2_actions
+                  - !input on_t2_actions
+                  - service: input_select.select_option
+                    target:
+                      entity_id: !input zone_state_helper
+                    data:
+                      option: "t2"
 
-              - conditions: "{{ APPLY_SCENE1 }}"
+              # Entree en T1 -> une seule fois
+              - conditions: >
+                  {{ APPLY_SCENE1 and ZONE_CUR != 't1' }}
                 sequence:
                   - service: scene.turn_on
                     target:
@@ -308,8 +333,11 @@ action:
                   - service: input_boolean.turn_on
                     target:
                       entity_id: !input t3_guard_helper
-                  - alias: Actions supplementaires T1
-                    choose: []
-                    default: !input on_t1_actions
+                  - !input on_t1_actions
+                  - service: input_select.select_option
+                    target:
+                      entity_id: !input zone_state_helper
+                    data:
+                      option: "t1"
             default: []
     default: []
