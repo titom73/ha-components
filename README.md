@@ -99,6 +99,35 @@ The blueprints are designed to be flexible:
 - **Adjustable Parameters** : Thresholds, timings, entities
 - **Modular Actions** : Easy replacement of scenes and services
 
+## 🧪 Testing and Validation
+
+This repository includes automated validation to ensure blueprint quality:
+
+- **YAML Syntax Validation** : Ensures all files are properly formatted
+- **Blueprint Schema Compliance** : Validates Home Assistant requirements
+- **Import Testing** : Simulates loading blueprints into Home Assistant
+- **Documentation Sync** : Ensures all blueprints are documented
+
+### Local Testing
+
+```bash
+# Run all validation tests
+./test-blueprints.sh
+
+# Individual tests
+yamllint blueprints/
+python3 .github/scripts/validate_blueprint_schema.py
+```
+
+### GitHub Actions
+
+Automated testing runs on every push and pull request:
+- Basic validation for quick feedback
+- Full validation including security scanning
+- Documentation synchronization checks
+
+See [Validation Documentation](.github/README.md) for detailed information.
+
 ## 📝 Contributing
 
 To contribute to this repository:

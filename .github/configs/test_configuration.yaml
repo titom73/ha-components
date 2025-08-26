@@ -1,0 +1,160 @@
+# Test configuration for blueprint validation
+homeassistant:
+  name: "Blueprint Test"
+  latitude: 48.8566
+  longitude: 2.3522
+  elevation: 35
+  unit_system: metric
+  time_zone: "Europe/Paris"
+  country: FR
+  currency: EUR
+  internal_url: "http://localhost:8123"
+  external_url: "http://localhost:8123"
+
+# Enable the blueprint directory
+blueprint:
+
+# Basic integrations for testing
+automation: !include_dir_merge_list automations/
+script: !include_dir_merge_list scripts/
+scene: !include_dir_merge_list scenes/
+
+# Mock entities for testing blueprints
+template:
+  - sensor:
+      - name: "Test Temperature Indoor"
+        unique_id: test_temp_indoor
+        state: "{{ 21.5 }}"
+        unit_of_measurement: "°C"
+        device_class: temperature
+        
+      - name: "Test Temperature Outdoor" 
+        unique_id: test_temp_outdoor
+        state: "{{ 18.3 }}"
+        unit_of_measurement: "°C"
+        device_class: temperature
+        
+      - name: "Test Weather Alert"
+        unique_id: test_weather_alert
+        state: "Vert"
+        attributes:
+          Pluie: "Vert"
+          Vent: "Jaune"
+          Température: "Vert"
+
+# Mock input helpers for testing
+input_boolean:
+  test_enable:
+    name: "Test Enable"
+    icon: mdi:toggle-switch
+    
+  test_presence:
+    name: "Test Presence"
+    icon: mdi:home-account
+    
+  test_t3_guard:
+    name: "Test T3 Guard"
+    icon: mdi:shield-check
+
+input_number:
+  test_t1_threshold:
+    name: "Test T1 Threshold"
+    min: 15
+    max: 35
+    step: 0.5
+    unit_of_measurement: "°C"
+    
+  test_t2_threshold:
+    name: "Test T2 Threshold"
+    min: 20
+    max: 40
+    step: 0.5
+    unit_of_measurement: "°C"
+    
+  test_t3_threshold:
+    name: "Test T3 Threshold"
+    min: 10
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+
+input_select:
+  test_zone_state:
+    name: "Test Zone State"
+    options:
+      - "none"
+      - "t1" 
+      - "t2"
+    initial: "none"
+
+input_datetime:
+  test_time:
+    name: "Test Time"
+    has_time: true
+    has_date: false
+    
+  test_snapshot_time:
+    name: "Test Snapshot Time"
+    has_time: true
+    has_date: false
+
+# Mock camera entities for testing
+camera:
+  - platform: demo
+    name: "Test Camera Living Room"
+    
+  - platform: demo
+    name: "Test Camera Garden"
+
+# Mock cover entities for testing
+cover:
+  - platform: template
+    covers:
+      test_living_room_blinds:
+        friendly_name: "Test Living Room Blinds"
+        value_template: "{{ states('input_boolean.test_cover_state') }}"
+        open_cover:
+          service: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.test_cover_state
+        close_cover:
+          service: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.test_cover_state
+            
+# Mock scenes for testing
+scene:
+  - name: "Test Scene T1"
+    id: test_scene_t1
+    entities:
+      cover.test_living_room_blinds:
+        state: "closed"
+        
+  - name: "Test Scene T2"
+    id: test_scene_t2
+    entities:
+      cover.test_living_room_blinds:
+        state: "closed"
+
+# Mock telegram bot for testing (won't actually send)
+telegram_bot:
+  - platform: polling
+    api_key: "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ-test"
+    allowed_chat_ids:
+      - 123456789
+
+# Mock weather integration
+weather:
+  - platform: demo
+    name: "Test Weather"
+
+# Basic logger for testing
+logger:
+  default: warning
+  logs:
+    homeassistant.components.blueprint: debug
+    homeassistant.helpers.template: info
+
+# Recorder to prevent database errors
+recorder:
+  db_url: "sqlite:///:memory:"
