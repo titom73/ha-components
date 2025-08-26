@@ -64,6 +64,15 @@ blueprint:
           domain: cover
           multiple: true
 
+    # --- Etat de zone (obligatoire) ---
+    zone_state_helper:
+      name: Etat de zone T1/T2 (input_select)
+      description: >
+        Input_select avec options EXACTES : none, t1, t2. Sert a n executer T1/T2 qu une seule fois a l entree de zone.
+      selector:
+        entity:
+          domain: input_select
+
     # --- Hysteresis (deg C) ---
     hys_t1:
       name: Hysteresis autour de T1 (deg C)
@@ -143,15 +152,6 @@ blueprint:
       selector:
         entity:
           domain: input_boolean
-
-    # --- Etat de zone (obligatoire) ---
-    zone_state_helper:
-      name: Etat de zone T1/T2 (input_select)
-      description: >
-        Input_select avec options EXACTES : none, t1, t2. Sert a n executer T1/T2 qu une seule fois a l entree de zone.
-      selector:
-        entity:
-          domain: input_select
 
     # --- Actions supplementaires (optionnelles) ---
     on_t1_actions:
