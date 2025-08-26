@@ -217,6 +217,87 @@ For south-facing windows (example):
 - Elevation min: 10° (above horizon)
 - Elevation max: 70° (high sun)
 
+## Usage
+
+### Daily Operation
+
+Once configured, the blueprint operates automatically based on temperature readings:
+
+1. **Morning/Low Temperature**
+   - Covers remain in their normal position
+   - Zone state shows "none"
+   - T3 guard is disarmed
+
+2. **Temperature Rises to T1**
+   - System creates snapshot of current cover positions
+   - Applies Scene 1 (medium protection)
+   - Arms T3 guard
+   - Sets zone state to "t1"
+
+3. **Temperature Continues to T2**
+   - Applies Scene 2 (intense protection)
+   - Updates zone state to "t2"
+   - T3 guard remains armed
+
+4. **Temperature Drops Below T3**
+   - After 10 minutes, opens covers automatically
+   - Disarms T3 guard
+   - Resets zone state to "none"
+
+5. **Evening (5 minutes before sunset)**
+   - Restores original cover positions from snapshot
+   - Resets all states for next day
+
+### Monitoring and Control
+
+#### Key Entities to Monitor
+
+- **Zone State** (`input_select.zone_state_helper`): Shows current temperature zone
+- **T3 Guard** (`input_boolean.t3_guard_helper`): Indicates if T3 actions are enabled
+- **Temperature Sensor**: Current temperature reading
+- **Scene Snapshots**: Automatically created scenes for restoration
+
+#### Manual Override
+
+You can manually control the system:
+
+- Disable automation temporarily by turning it off
+- Manually change zone state to force transitions
+- Adjust temperature thresholds in real-time
+- Toggle T3 guard to prevent/allow cover opening
+
+### Seasonal Adjustments
+
+#### Summer Configuration
+
+- T1: 26°C (start medium protection)
+- T2: 29°C (increase to intense protection)
+- T3: 24°C (return to normal)
+- Solar filter: Active during peak hours
+
+#### Winter Configuration
+
+- T1: 22°C (gentler protection)
+- T2: 25°C (moderate protection)
+- T3: 20°C (return threshold)
+- Solar filter: Disabled or adjusted for lower sun angles
+
+### Best Practices
+
+1. **Start Conservative**
+   - Begin with higher temperature thresholds
+   - Gradually adjust based on comfort and energy savings
+
+2. **Monitor First Week**
+   - Check automation traces regularly
+   - Verify temperature readings are accurate
+   - Adjust hysteresis if oscillations occur
+
+3. **Seasonal Reviews**
+   - Update thresholds for seasonal temperature changes
+   - Adjust solar filter for seasonal sun positions
+   - Review scene configurations for different light conditions
+
 ## Troubleshooting
 
 ### Common Issues

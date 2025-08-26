@@ -27,13 +27,13 @@ template:
         state: "{{ 21.5 }}"
         unit_of_measurement: "°C"
         device_class: temperature
-        
-      - name: "Test Temperature Outdoor" 
+
+      - name: "Test Temperature Outdoor"
         unique_id: test_temp_outdoor
         state: "{{ 18.3 }}"
         unit_of_measurement: "°C"
         device_class: temperature
-        
+
       - name: "Test Weather Alert"
         unique_id: test_weather_alert
         state: "Vert"
@@ -47,11 +47,11 @@ input_boolean:
   test_enable:
     name: "Test Enable"
     icon: mdi:toggle-switch
-    
+
   test_presence:
     name: "Test Presence"
     icon: mdi:home-account
-    
+
   test_t3_guard:
     name: "Test T3 Guard"
     icon: mdi:shield-check
@@ -63,14 +63,14 @@ input_number:
     max: 35
     step: 0.5
     unit_of_measurement: "°C"
-    
+
   test_t2_threshold:
     name: "Test T2 Threshold"
     min: 20
     max: 40
     step: 0.5
     unit_of_measurement: "°C"
-    
+
   test_t3_threshold:
     name: "Test T3 Threshold"
     min: 10
@@ -83,7 +83,7 @@ input_select:
     name: "Test Zone State"
     options:
       - "none"
-      - "t1" 
+      - "t1"
       - "t2"
     initial: "none"
 
@@ -92,7 +92,7 @@ input_datetime:
     name: "Test Time"
     has_time: true
     has_date: false
-    
+
   test_snapshot_time:
     name: "Test Snapshot Time"
     has_time: true
@@ -102,7 +102,7 @@ input_datetime:
 camera:
   - platform: demo
     name: "Test Camera Living Room"
-    
+
   - platform: demo
     name: "Test Camera Garden"
 
@@ -121,7 +121,7 @@ cover:
           service: input_boolean.turn_off
           target:
             entity_id: input_boolean.test_cover_state
-            
+
 # Mock scenes for testing
 scene:
   - name: "Test Scene T1"
@@ -129,7 +129,7 @@ scene:
     entities:
       cover.test_living_room_blinds:
         state: "closed"
-        
+
   - name: "Test Scene T2"
     id: test_scene_t2
     entities:

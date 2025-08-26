@@ -1,12 +1,15 @@
 blueprint:
-  name: Volets - Scenes par paliers de temperature + filtre Soleil + retour avant coucher (+ actions T1/T2/T3 + hysteresis + garde T3 + zone state)
+  name: Volets - Scenes par paliers de temperature + filtre Soleil + retour T3 + hysteresis + downgrade
   description: >
-    Scenes T1/T2 avec hysteresis (H1/H2) et filtre Soleil. T3 (ouverture) uniquement si T1/T2
-    a deja ete applique (garde T3). 5 min avant le coucher du soleil: restore snapshot et reset zone.
-    Les actions T1/T2 ne s executent qu une seule fois par entree de zone (input_select none/t1/t2).
+    Scenes T1/T2 avec hysteresis (H1/H2) et filtre Soleil. T3 (ouverture)
+    uniquement si T1/T2 a deja ete applique (garde T3). 5 min avant le coucher
+    du soleil: restore snapshot et reset zone. Les actions T1/T2 ne s executent
+    qu une seule fois par entree de zone (input_select none/t1/t2). Ajoute la
+    gestion de T2->T1 (downgrade) et T1->none a la baisse.
   domain: automation
 
   input:
+    # Capteurs / seuils
     temp_sensor:
       name: Capteur de temperature
       description: Capteur principal de temperature (en deg C) utilise pour la decision.
@@ -18,7 +21,8 @@ blueprint:
     t1_helper:
       name: Temperature pour une protection moyenne
       description: >
-        Seuil T1. Quand la temperature atteint T1 (avec hysteresis), la Scene 1 peut s appliquer.
+        Seuil T1. Quand la temperature atteint T1 (avec hysteresis), la Scene 1
+        peut s appliquer.
       selector:
         entity:
           domain: input_number
@@ -26,8 +30,8 @@ blueprint:
     t2_helper:
       name: Temperature pour une protection intense (T2 > T1)
       description: >
-        Seuil T2. Doit etre strictement superieur a T1. Quand la temperature atteint T2 (avec hysteresis),
-        la Scene 2 peut s appliquer.
+        Seuil T2. Doit etre strictement superieur a T1. Quand la temperature
+        atteint T2 (avec hysteresis), la Scene 2 peut s appliquer.
       selector:
         entity:
           domain: input_number
@@ -35,12 +39,13 @@ blueprint:
     t3_helper:
       name: Temperature de retour a l etat initial (T3 < T1)
       description: >
-        Seuil T3. Doit etre strictement inferieur a T1. Si Temp < T3 pendant 10 min et que le
-        garde T3 est arme, on ouvre les volets.
+        Seuil T3. Doit etre strictement inferieur a T1. Si Temp < T3 pendant
+        10 min et que le garde T3 est arme, on ouvre les volets.
       selector:
         entity:
           domain: input_number
 
+    # Scenes
     scene_1:
       name: Scene a appliquer quand on atteint T1
       description: Scene appliquee pour la zone T1 (protection moyenne) avec hysteresis.
@@ -56,15 +61,26 @@ blueprint:
           domain: scene
 
     covers:
-      name: Volets a piloter (Pour retour a l etat initial et ouverture si T<T3)
+      name: Volets a piloter
       description: >
-        Un ou plusieurs volets. Utilises pour le snapshot/restore avant coucher et pour l ouverture a T3.
+        Un ou plusieurs volets. Utilises pour le snapshot/restore avant coucher
+        et pour l ouverture a T3.
       selector:
         entity:
           domain: cover
           multiple: true
 
-    # --- Hysteresis (deg C) ---
+    # Etat de zone (obligatoire)
+    zone_state_helper:
+      name: Etat de zone T1/T2 (input_select)
+      description: >
+        Input_select avec options EXACTES : none, t1, t2. Sert a n executer
+        T1/T2 qu une seule fois a l entree de zone.
+      selector:
+        entity:
+          domain: input_select
+
+    # Hysteresis (deg C)
     hys_t1:
       name: Hysteresis autour de T1 (deg C)
       description: Marge autour de T1 pour eviter les bascules rapides. Mettre 0 pour desactiver.
@@ -75,6 +91,7 @@ blueprint:
           max: 5
           step: 0.1
           mode: slider
+
     hys_t2:
       name: Hysteresis autour de T2 (deg C)
       description: Marge autour de T2 pour eviter les bascules rapides. Mettre 0 pour desactiver.
@@ -86,14 +103,16 @@ blueprint:
           step: 0.1
           mode: slider
 
-    # --- Filtre Soleil (optionnel) ---
+    # Filtre Soleil (optionnel)
     sun_filter_enabled:
       name: Activer le filtre Soleil (Azimut/Elevation)
       description: >
-        Si active, les scenes T1/T2 ne s appliquent que si le soleil est dans la fenetre azimut/elevation definie.
+        Si active, les scenes T1/T2 ne s appliquent que si le soleil est dans
+        la fenetre azimut/elevation definie.
       default: false
       selector:
         boolean: {}
+
     azimuth_min:
       name: Azimut min (deg)
       description: Borne inferieure d azimut (0-360; 0=N, 90=E, 180=S, 270=O).
@@ -104,10 +123,12 @@ blueprint:
           max: 360
           step: 1
           mode: slider
+
     azimuth_max:
       name: Azimut max (deg)
       description: >
-        Borne superieure d azimut (0-360). Si min > max, la fenetre est circulaire (passe par 0).
+        Borne superieure d azimut (0-360). Si min > max, la fenetre est
+        circulaire (passe par 0).
       default: 360
       selector:
         number:
@@ -115,6 +136,7 @@ blueprint:
           max: 360
           step: 1
           mode: slider
+
     elevation_min:
       name: Elevation min (deg)
       description: Borne inferieure d elevation (angle au-dessus de l horizon, env. -6 a 90).
@@ -125,6 +147,7 @@ blueprint:
           max: 90
           step: 1
           mode: slider
+
     elevation_max:
       name: Elevation max (deg)
       description: Borne superieure d elevation (angle au-dessus de l horizon).
@@ -136,7 +159,7 @@ blueprint:
           step: 1
           mode: slider
 
-    # --- Garde-fou T3 (obligatoire) ---
+    # Garde-fou T3 (obligatoire)
     t3_guard_helper:
       name: Drapeau T3 arme (input_boolean)
       description: Passe a ON quand Scene 1 ou Scene 2 s applique. T3 (ouverture) ne s execute que si ce drapeau est ON.
@@ -144,28 +167,21 @@ blueprint:
         entity:
           domain: input_boolean
 
-    # --- Etat de zone (obligatoire) ---
-    zone_state_helper:
-      name: Etat de zone T1/T2 (input_select)
-      description: >
-        Input_select avec options EXACTES : none, t1, t2. Sert a n executer T1/T2 qu une seule fois a l entree de zone.
-      selector:
-        entity:
-          domain: input_select
-
-    # --- Actions supplementaires (optionnelles) ---
+    # Actions supplementaires (optionnelles)
     on_t1_actions:
       name: Actions supplementaires a T1 (apres Scene 1)
       description: Liste d actions a executer apres l application de Scene 1 (facultatif).
       default: []
       selector:
         action: {}
+
     on_t2_actions:
       name: Actions supplementaires a T2 (apres Scene 2)
       description: Liste d actions a executer apres l application de Scene 2 (facultatif).
       default: []
       selector:
         action: {}
+
     on_t3_actions:
       name: Actions supplementaires a T3 (apres ouverture volets)
       description: Liste d actions a executer apres l ouverture des volets quand Temp < T3 pendant 10 min (facultatif).
@@ -177,6 +193,7 @@ mode: restart
 max_exceeded: silent
 
 variables:
+  # Aliases
   v_temp_sensor: !input temp_sensor
   v_t1: !input t1_helper
   v_t2: !input t2_helper
@@ -184,19 +201,17 @@ variables:
   v_scene_1: !input scene_1
   v_scene_2: !input scene_2
   v_covers: !input covers
-
   v_h1: !input hys_t1
   v_h2: !input hys_t2
-
   v_sun_filter_enabled: !input sun_filter_enabled
   v_az_min: !input azimuth_min
   v_az_max: !input azimuth_max
   v_el_min: !input elevation_min
   v_el_max: !input elevation_max
-
   v_t3_guard: !input t3_guard_helper
   v_zone_state: !input zone_state_helper
 
+  # Mesures et seuils
   T: "{{ states(v_temp_sensor) | float(9999) }}"
   T1: "{{ states(v_t1) | float(9999) }}"
   T2: "{{ states(v_t2) | float(9999) }}"
@@ -219,20 +234,29 @@ variables:
   SUN_EL_OK: "{{ SUN_EL >= (v_el_min|float(-90)) and SUN_EL <= (v_el_max|float(90)) }}"
   SUN_FILTER_PASSED: "{{ (not v_sun_filter_enabled) or (SUN_AZ_OK and SUN_EL_OK) }}"
 
-  # Hysteresis
+  # Hysteresis - entrees
   APPLY_SCENE2: "{{ (T >= (T2 + H2)) and (T2 > T1) }}"
   APPLY_SCENE1: "{{ (T >= (T1 + H1)) and (T < (T2 - H2)) and (T2 > T1) and ((T2 - H2) > (T1 + H1)) }}"
+
+  # Hysteresis - sorties (a la baisse)
+  LEAVE_T2: "{{ T < (T2 - H2) }}"
+  LEAVE_T1: "{{ T < (T1 - H1) }}"
+  BETWEEN_T1_T2_BAND: "{{ (T >= (T1 + H1)) and (T < (T2 - H2)) }}"
 
   # Snapshot
   SNAP_ID: "{{ (this.entity_id | replace('.', '_')) ~ '_snapshot' }}"
   SNAP_ENTITY: "{{ 'scene.' ~ SNAP_ID }}"
   SNAP_EXISTS: "{{ not states(SNAP_ENTITY) in ['unknown','unavailable',''] }}"
 
-  # Gardes
+  # Gardes et zone
   T3_GUARD_OK: "{{ is_state(v_t3_guard, 'on') }}"
   ZONE_CUR: >-
     {% set z = states(v_zone_state) %}
     {{ 'none' if z in ['unknown','unavailable',''] else z }}
+
+  # Downgrade conditions
+  DOWNGRADE_T2_TO_T1_OK: "{{ ZONE_CUR == 't2' and BETWEEN_T1_T2_BAND }}"
+  CLEAR_T1_TO_NONE_OK: "{{ ZONE_CUR == 't1' and LEAVE_T1 and (T >= T3) }}"
 
 trigger_variables:
   t_sensor: !input temp_sensor
@@ -265,6 +289,7 @@ condition: []
 
 action:
   - choose:
+
       # 1) Restore avant coucher (si pas deja < T3) + desarmer garde + zone = none
       - conditions: "{{ trigger.id == 'pre_sunset_restore' and (T >= T3) }}"
         sequence:
@@ -315,7 +340,7 @@ action:
                   scene_id: "{{ SNAP_ID }}"
                   snapshot_entities: !input covers
 
-          # Entree en T2 -> unique
+          # ENTREE EN T2 -> unique (montee)
           - choose:
               - conditions: "{{ APPLY_SCENE2 and ZONE_CUR != 't2' }}"
                 sequence:
@@ -333,7 +358,8 @@ action:
                     data:
                       option: "t2"
 
-              # Entree en T1 -> unique
+          # ENTREE EN T1 -> unique (montee)
+          - choose:
               - conditions: "{{ APPLY_SCENE1 and ZONE_CUR != 't1' }}"
                 sequence:
                   - service: scene.turn_on
@@ -349,5 +375,31 @@ action:
                       entity_id: !input zone_state_helper
                     data:
                       option: "t1"
-            default: []
+
+          # DOWNGRADE T2 -> T1 (baisse dans la bande T1+H1 .. T2-H2)
+          - choose:
+              - conditions: "{{ DOWNGRADE_T2_TO_T1_OK }}"
+                sequence:
+                  - service: scene.turn_on
+                    target:
+                      entity_id: !input scene_1
+                  - alias: Actions supplementaires T1 (downgrade)
+                    sequence: !input on_t1_actions
+                  - service: input_select.select_option
+                    target:
+                      entity_id: !input zone_state_helper
+                    data:
+                      option: "t1"
+
+          # T1 -> none lorsqu on sort de T1 a la baisse (sous T1-H1)
+          # On NE restore PAS tout de suite. On conserve le garde T3 pour attendre T3 10 min.
+          - choose:
+              - conditions: "{{ CLEAR_T1_TO_NONE_OK }}"
+                sequence:
+                  - service: input_select.select_option
+                    target:
+                      entity_id: !input zone_state_helper
+                    data:
+                      option: "none"
+
     default: []

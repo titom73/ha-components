@@ -115,6 +115,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install dependencies
+        run: pip install PyYAML
+
       - name: Check documentation sync
         run: |
           python .github/scripts/check_docs_sync.py
