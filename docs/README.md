@@ -6,7 +6,8 @@ This directory contains comprehensive documentation for all Home Assistant bluep
 
 ### Climate Management
 
-#### [Cover Heat Management](cover-heat-management.md)
+#### [Cover Heat Management](climate-cover-heat-management.md)
+
 - **File**: `blueprints/climate/cover-heat-management.yml`
 - **Purpose**: Advanced temperature-based cover/shutter automation with hysteresis and solar filtering
 - **Complexity**: Advanced
@@ -14,13 +15,15 @@ This directory contains comprehensive documentation for all Home Assistant bluep
 
 ### Notifications
 
-#### [Camera Snapshot to Telegram](camera-snapshot-to-telegram.md)
+#### [Camera Snapshot to Telegram](notifications-camera-sanpshot-to-telegram.md)
+
 - **File**: `blueprints/notifications/camera-sanpshot-to-telegram.yml`
 - **Purpose**: Daily automated camera snapshot delivery via Telegram
 - **Complexity**: Beginner to Intermediate
 - **Features**: Scheduled capture, multi-camera support, customizable captions
 
-#### [Daily Weather Report to Telegram](daily-weather-report-to-telegram.md)
+#### [Daily Weather Report to Telegram](notifications-daily-weather-report-to-telegram.md)
+
 - **File**: `blueprints/notifications/daily-weather-report-to-telegram.yml`
 - **Purpose**: Comprehensive French weather reports with alerts and camera snapshots
 - **Complexity**: Intermediate to Advanced

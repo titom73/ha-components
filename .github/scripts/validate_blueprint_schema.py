@@ -10,6 +10,34 @@ from pathlib import Path
 from typing import Dict, List, Any
 
 
+class HomeAssistantLoader(yaml.SafeLoader):
+    """Custom YAML loader that handles Home Assistant specific tags."""
+    pass
+
+
+def construct_input(loader, node):
+    """Handle !input tags in Home Assistant blueprints."""
+    return f"!input {loader.construct_scalar(node)}"
+
+
+def construct_include(loader, node):
+    """Handle !include tags in Home Assistant configuration."""
+    return f"!include {loader.construct_scalar(node)}"
+
+
+def construct_include_dir_merge_list(loader, node):
+    """Handle !include_dir_merge_list tags."""
+    return f"!include_dir_merge_list {loader.construct_scalar(node)}"
+
+
+# Add constructors for Home Assistant specific tags
+HomeAssistantLoader.add_constructor('!input', construct_input)
+HomeAssistantLoader.add_constructor('!include', construct_include)
+HomeAssistantLoader.add_constructor('!include_dir_merge_list',
+                                  construct_include_dir_merge_list)
+HomeAssistantLoader.add_constructor('!secret', construct_include)
+
+
 def validate_blueprint_structure(data: Dict[str, Any], file_path: str) -> bool:
     """Validate blueprint structure against Home Assistant requirements."""
     errors = []
@@ -96,7 +124,7 @@ def validate_blueprint_file(file_path: Path) -> bool:
     """Validate a single blueprint file."""
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
-            data = yaml.safe_load(file)
+            data = yaml.load(file, Loader=HomeAssistantLoader)
 
         if data is None:
             print(f"❌ {file_path}: Empty YAML file")

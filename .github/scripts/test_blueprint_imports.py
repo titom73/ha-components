@@ -12,6 +12,34 @@ from pathlib import Path
 from typing import Dict, List, Any
 
 
+class HomeAssistantLoader(yaml.SafeLoader):
+    """Custom YAML loader that handles Home Assistant specific tags."""
+    pass
+
+
+def construct_input(loader, node):
+    """Handle !input tags in Home Assistant blueprints."""
+    return f"!input {loader.construct_scalar(node)}"
+
+
+def construct_include(loader, node):
+    """Handle !include tags in Home Assistant configuration."""
+    return f"!include {loader.construct_scalar(node)}"
+
+
+def construct_include_dir_merge_list(loader, node):
+    """Handle !include_dir_merge_list tags."""
+    return f"!include_dir_merge_list {loader.construct_scalar(node)}"
+
+
+# Add constructors for Home Assistant specific tags
+HomeAssistantLoader.add_constructor('!input', construct_input)
+HomeAssistantLoader.add_constructor('!include', construct_include)
+HomeAssistantLoader.add_constructor('!include_dir_merge_list',
+                                  construct_include_dir_merge_list)
+HomeAssistantLoader.add_constructor('!secret', construct_include)
+
+
 def create_test_config() -> str:
     """Create a minimal Home Assistant configuration for testing."""
     config_content = """
@@ -36,7 +64,7 @@ def test_blueprint_import(blueprint_path: Path, config_dir: Path) -> bool:
     """Test if a blueprint can be imported."""
     try:
         with open(blueprint_path, 'r', encoding='utf-8') as file:
-            blueprint_data = yaml.safe_load(file)
+            blueprint_data = yaml.load(file, Loader=HomeAssistantLoader)
 
         if not blueprint_data or 'blueprint' not in blueprint_data:
             print(f"❌ {blueprint_path}: Invalid blueprint structure")
@@ -52,7 +80,7 @@ def test_blueprint_import(blueprint_path: Path, config_dir: Path) -> bool:
 
         # Try to validate the blueprint can be loaded
         with open(target_file, 'r', encoding='utf-8') as file:
-            loaded_data = yaml.safe_load(file)
+            loaded_data = yaml.load(file, Loader=HomeAssistantLoader)
 
         if loaded_data == blueprint_data:
             print(f"✅ {blueprint_path}: Successfully imported")
@@ -141,7 +169,7 @@ def main() -> int:
                 # Validate inputs
                 try:
                     with open(file_path, 'r', encoding='utf-8') as file:
-                        blueprint_data = yaml.safe_load(file)
+                        blueprint_data = yaml.load(file, Loader=HomeAssistantLoader)
 
                     issues = validate_blueprint_inputs(blueprint_data)
                     if issues:

@@ -7,7 +7,35 @@ Ensures documentation exists for all blueprints and is up to date.
 import sys
 import yaml
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List
+
+
+class HomeAssistantLoader(yaml.SafeLoader):
+    """Custom YAML loader that handles Home Assistant specific tags."""
+    pass
+
+
+def construct_input(loader, node):
+    """Handle !input tags in Home Assistant blueprints."""
+    return f"!input {loader.construct_scalar(node)}"
+
+
+def construct_include(loader, node):
+    """Handle !include tags in Home Assistant configuration."""
+    return f"!include {loader.construct_scalar(node)}"
+
+
+def construct_include_dir_merge_list(loader, node):
+    """Handle !include_dir_merge_list tags."""
+    return f"!include_dir_merge_list {loader.construct_scalar(node)}"
+
+
+# Add constructors for Home Assistant specific tags
+HomeAssistantLoader.add_constructor('!input', construct_input)
+HomeAssistantLoader.add_constructor('!include', construct_include)
+HomeAssistantLoader.add_constructor('!include_dir_merge_list',
+                                  construct_include_dir_merge_list)
+HomeAssistantLoader.add_constructor('!secret', construct_include)
 
 
 def find_blueprint_files() -> List[Path]:
@@ -36,7 +64,7 @@ def extract_blueprint_info(blueprint_path: Path) -> Dict[str, str]:
     """Extract key information from a blueprint file."""
     try:
         with open(blueprint_path, 'r', encoding='utf-8') as file:
-            data = yaml.safe_load(file)
+            data = yaml.load(file, Loader=HomeAssistantLoader)
 
         if not data or 'blueprint' not in data:
             return {}

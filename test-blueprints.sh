@@ -14,14 +14,27 @@ if [ ! -d "blueprints" ]; then
     exit 1
 fi
 
+# Check if virtual environment exists
+if [ ! -d ".venv" ]; then
+    echo "🔧 Creating virtual environment..."
+    python3 -m venv .venv
+fi
+
+# Activate virtual environment
+echo "🔌 Activating virtual environment..."
+source .venv/bin/activate
+
+# Set Python command to use venv
+PYTHON_CMD=".venv/bin/python"
+
 # Check if Python is available
-if ! command -v python3 &> /dev/null; then
+if ! command -v "$PYTHON_CMD" &> /dev/null; then
     echo "❌ Error: Python 3 is required but not installed."
     exit 1
 fi
 
 echo "📦 Installing dependencies..."
-python3 -m pip install --quiet --user pyyaml yamllint
+$PYTHON_CMD -m pip install --quiet pyyaml yamllint
 
 echo ""
 echo "1️⃣  Testing YAML syntax..."
@@ -37,22 +50,22 @@ fi
 echo ""
 echo "2️⃣  Testing YAML structure..."
 echo "============================="
-python3 .github/scripts/validate_yaml_structure.py
+$PYTHON_CMD .github/scripts/validate_yaml_structure.py
 
 echo ""
 echo "3️⃣  Testing blueprint schema..."
 echo "==============================="
-python3 .github/scripts/validate_blueprint_schema.py
+$PYTHON_CMD .github/scripts/validate_blueprint_schema.py
 
 echo ""
 echo "4️⃣  Testing blueprint imports..."
 echo "==============================="
-python3 .github/scripts/test_blueprint_imports.py
+$PYTHON_CMD .github/scripts/test_blueprint_imports.py
 
 echo ""
 echo "5️⃣  Checking documentation sync..."
 echo "=================================="
-python3 .github/scripts/check_docs_sync.py
+$PYTHON_CMD .github/scripts/check_docs_sync.py
 
 echo ""
 echo "✅ All tests completed!"
