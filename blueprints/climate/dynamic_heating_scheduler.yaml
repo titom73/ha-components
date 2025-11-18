@@ -1,7 +1,7 @@
 blueprint:
   name: Dynamic Heating Scheduler
   description: >
-    Heating automation with dynamic schedules, presence-aware presets,
+    Heating automation with dynamic YAML schedule slots, presence-aware presets,
     global heating enable, Versatile Thermostat window-state awareness,
     mobile push notifications and debug persistent notifications.
   domain: automation
@@ -10,7 +10,7 @@ blueprint:
 
     climate_list:
       name: Climate entities
-      description: Optional explicit list of versatile thermostats
+      description: Optional explicit list of Versatile Thermostat climate devices
       selector:
         entity:
           domain: climate
@@ -18,7 +18,7 @@ blueprint:
 
     area:
       name: Area
-      description: All climate entities inside this area (alternative)
+      description: All climate entities inside this area (alternative to climate_list)
       default: ""
       selector:
         area: {}
@@ -43,73 +43,38 @@ blueprint:
           domain: binary_sensor
           device_class: workday
 
-    workday_slots:
-      name: Workday schedule slots
-      description: List of objects defining time slots and presets
+    ###########################################################
+    # YAML slot lists (the HA-compatible way for dynamic slots)
+    ###########################################################
+    workday_slots_yaml:
+      name: Workday slots (YAML list)
+      description: >
+        YAML list of schedule slots.
+        Example:
+          - start: "06:30"
+            preset_present: comfort
+            preset_absent: eco_away
+          - start: "09:00"
+            preset_present: eco
+            preset_absent: off
       selector:
-        list:
-          element:
-            object:
-              properties:
-                start:
-                  selector:
-                    time: {}
-                preset_present:
-                  selector:
-                    select:
-                      options:
-                        - comfort
-                        - eco
-                        - away
-                        - boost
-                        - off
-                preset_absent:
-                  selector:
-                    select:
-                      options:
-                        - comfort_away
-                        - eco_away
-                        - off
-              required:
-                - start
-                - preset_present
-                - preset_absent
+        text:
+          multiline: true
 
-    non_workday_slots:
-      name: Non-workday schedule slots
-      description: List of objects defining time slots and presets
+    non_workday_slots_yaml:
+      name: Non-workday slots (YAML list)
+      description: >
+        YAML list of schedule slots.
+        Example:
+          - start: "08:30"
+            preset_present: comfort
+            preset_absent: eco_away
       selector:
-        list:
-          element:
-            object:
-              properties:
-                start:
-                  selector:
-                    time: {}
-                preset_present:
-                  selector:
-                    select:
-                      options:
-                        - comfort
-                        - eco
-                        - away
-                        - boost
-                        - off
-                preset_absent:
-                  selector:
-                    select:
-                      options:
-                        - comfort_away
-                        - eco_away
-                        - off
-              required:
-                - start
-                - preset_present
-                - preset_absent
+        text:
+          multiline: true
 
     push_notifications:
       name: Mobile notifications
-      description: Enable push notifications for each change
       default: true
       selector:
         boolean: {}
@@ -150,6 +115,9 @@ variables:
   climate_list: !input climate_list
   area: !input area
 
+  ##########################################
+  # Resolve climates
+  ##########################################
   climates: >-
     {% if climate_list | length > 0 %}
       {{ climate_list }}
@@ -157,12 +125,24 @@ variables:
       {{ expand(area_entities(area, 'climate')) | map(attribute='entity_id') | list }}
     {% endif %}
 
-  workday_slots: !input workday_slots
-  non_workday_slots: !input non_workday_slots
+  ##########################################
+  # Parse YAML slot lists
+  ##########################################
+  workday_slots: >
+    {{ workday_slots_yaml | default("[]") | from_yaml }}
 
+  non_workday_slots: >
+    {{ non_workday_slots_yaml | default("[]") | from_yaml }}
+
+  ##########################################
+  # Choose slots based on workday
+  ##########################################
   selected_slots: "{{ workday_slots if workday else non_workday_slots }}"
   now_time: "{{ now().strftime('%H:%M') }}"
 
+  ##########################################
+  # Determine active slot
+  ##########################################
   active_slot: >-
     {% set t = now_time %}
     {% set lst = selected_slots | selectattr('start','<=',t) | list %}
@@ -172,6 +152,9 @@ variables:
       {{ lst[-1] }}
     {% endif %}
 
+  ##########################################
+  # VTherm window-state detection
+  ##########################################
   vt_window_open: >-
     {{
       expand(climates)
@@ -204,8 +187,8 @@ action:
             then:
               - service: "{{ notify_service }}"
                 data:
-                  title: "Heating"
-                  message: "Heating off because global switch is off."
+                  title: "Heating disabled"
+                  message: "Heating off because global switch is OFF."
 
           - if:
               - condition: template
@@ -214,7 +197,7 @@ action:
               - service: persistent_notification.create
                 data:
                   title: "Heating debug"
-                  message: "Heating disabled by global switch."
+                  message: "Global switch off. Heating stopped."
     default: []
 
   ############################################################
@@ -233,7 +216,7 @@ action:
               - service: "{{ notify_service }}"
                 data:
                   title: "Heating blocked"
-                  message: "Heating blocked by Versatile Thermostat (window open)."
+                  message: "VTherm window_state detected as on. Heating blocked."
 
           - if:
               - condition: template
@@ -242,7 +225,7 @@ action:
               - service: persistent_notification.create
                 data:
                   title: "Heating debug"
-                  message: "VTherm window_state is on. Heating blocked."
+                  message: "VTherm window_state = on. Blocking all heating actions."
     default: []
 
   ############################################################
@@ -257,7 +240,7 @@ action:
         {% endif %}
 
   ############################################################
-  # Debug: context info
+  # Debug: context information
   ############################################################
   - if:
       - condition: template
@@ -275,7 +258,7 @@ action:
             desired_preset = {{ desired_preset }}
 
   ############################################################
-  # Apply preset or off
+  # Apply preset or turn off
   ############################################################
   - choose:
       - conditions: "{{ desired_preset == 'off' }}"
@@ -303,7 +286,7 @@ action:
               - service: persistent_notification.create
                 data:
                   title: "Heating debug"
-                  message: "Preset is off. Heating off."
+                  message: "Preset off applied."
     default:
       - repeat:
           for_each: "{{ climates }}"
