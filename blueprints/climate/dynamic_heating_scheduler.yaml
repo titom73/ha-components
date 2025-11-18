@@ -1,0 +1,333 @@
+blueprint:
+  name: Dynamic Heating Scheduler
+  description: >
+    Heating automation with dynamic schedules, presence-aware presets,
+    global heating enable, Versatile Thermostat window-state awareness,
+    mobile push notifications and debug persistent notifications.
+  domain: automation
+
+  input:
+
+    climate_list:
+      name: Climate entities
+      description: Optional explicit list of versatile thermostats
+      selector:
+        entity:
+          domain: climate
+          multiple: true
+
+    area:
+      name: Area
+      description: All climate entities inside this area (alternative to climate_list)
+      default: ""
+      selector:
+        area: {}
+
+    heating_enabled:
+      name: Global heating enable switch
+      selector:
+        entity:
+          domain: input_boolean
+
+    presence_sensor:
+      name: Presence sensor
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: occupancy
+
+    workday_sensor:
+      name: Workday sensor
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: workday
+
+    workday_slots:
+      name: Workday schedule slots
+      description: List of objects for workday slots (time + present/absent presets)
+      selector:
+        object:
+          properties:
+            start:
+              selector:
+                time: {}
+            preset_present:
+              selector:
+                select:
+                  options:
+                    - comfort
+                    - eco
+                    - away
+                    - boost
+                    - off
+            preset_absent:
+              selector:
+                select:
+                  options:
+                    - comfort_away
+                    - eco_away
+                    - off
+          required:
+            - start
+            - preset_present
+            - preset_absent
+        multiple: true
+
+    non_workday_slots:
+      name: Non-workday schedule slots
+      description: List of objects (time + present/absent presets)
+      selector:
+        object:
+          properties:
+            start:
+              selector:
+                time: {}
+            preset_present:
+              selector:
+                select:
+                  options:
+                    - comfort
+                    - eco
+                    - away
+                    - boost
+                    - off
+            preset_absent:
+              selector:
+                select:
+                  options:
+                    - comfort_away
+                    - eco_away
+                    - off
+          required:
+            - start
+            - preset_present
+            - preset_absent
+        multiple: true
+
+    push_notifications:
+      name: Mobile notifications
+      description: Enable push notifications on each decision
+      default: true
+      selector:
+        boolean: {}
+
+    debug:
+      name: Debug mode
+      description: Enable persistent notifications
+      default: false
+      selector:
+        entity:
+          domain: input_boolean
+
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: time_pattern
+    minutes: "/1"
+
+  - platform: state
+    entity_id: !input workday_sensor
+
+  - platform: state
+    entity_id: !input presence_sensor
+
+variables:
+
+  heating_enabled: !input heating_enabled
+  presence: "{{ is_state((!input presence_sensor), 'on') }}"
+  workday: "{{ is_state((!input workday_sensor), 'on') }}"
+
+  debug_entity: !input debug
+  debug_enabled: "{{ is_state((!input debug), 'on') }}"
+
+  push_enabled: "{{ !input push_notifications }}"
+  notify_service: "notify.mobile_app_iphone_de_thomas"
+
+  climate_list: !input climate_list
+  area: !input area
+
+  climates: >-
+    {% if climate_list | length > 0 %}
+      {{ climate_list }}
+    {% else %}
+      {{ expand(area_entities(area, 'climate')) | map(attribute='entity_id') | list }}
+    {% endif %}
+
+  workday_slots: !input workday_slots
+  non_workday_slots: !input non_workday_slots
+
+  selected_slots: "{{ workday_slots if workday else non_workday_slots }}"
+  now_time: "{{ now().strftime('%H:%M') }}"
+
+  active_slot: >-
+    {% set t = now_time %}
+    {% set s = selected_slots | selectattr('start','<=',t) | list %}
+    {% if s | length == 0 %}
+      {{ None }}
+    {% else %}
+      {{ s[-1] }}
+    {% endif %}
+
+  vt_window_open: >-
+    {{
+      expand(climates)
+      | selectattr('attributes.window_state','equalto','on')
+      | list
+      | length > 0
+    }}
+
+action:
+
+  ############################################################
+  # Global heating disabled -> force all off
+  ############################################################
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: !input heating_enabled
+            state: "off"
+        sequence:
+          - repeat:
+              for_each: "{{ climates }}"
+              sequence:
+                - service: climate.turn_off
+                  target:
+                    entity_id: "{{ repeat.item }}"
+
+          - if:
+              - condition: template
+                value_template: "{{ push_enabled }}"
+            then:
+              - service: "{{ notify_service }}"
+                data:
+                  title: "Heating"
+                  message: "Heating off because global switch is off."
+
+          - if:
+              - condition: template
+                value_template: "{{ debug_enabled }}"
+            then:
+              - service: persistent_notification.create
+                data:
+                  title: "Heating debug"
+                  message: >
+                    Heating disabled by global switch.
+    default: []
+
+  ############################################################
+  # VTherm window detection -> block heating
+  ############################################################
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ vt_window_open }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ push_enabled }}"
+            then:
+              - service: "{{ notify_service }}"
+                data:
+                  title: "Heating blocked"
+                  message: "Heating blocked by Versatile Thermostat (window open)."
+
+          - if:
+              - condition: template
+                value_template: "{{ debug_enabled }}"
+            then:
+              - service: persistent_notification.create
+                data:
+                  title: "Heating debug"
+                  message: >
+                    VTherm window_state is on. Heating blocked.
+    default: []
+
+  ############################################################
+  # Determine desired preset
+  ############################################################
+  - variables:
+      desired_preset: >-
+        {% if active_slot is none %}
+          off
+        {% else %}
+          {{ active_slot.preset_present if presence else active_slot.preset_absent }}
+        {% endif %}
+
+  ############################################################
+  # Debug: context info
+  ############################################################
+  - if:
+      - condition: template
+        value_template: "{{ debug_enabled }}"
+    then:
+      - service: persistent_notification.create
+        data:
+          title: "Heating debug"
+          message: >
+            now = {{ now_time }}
+            workday = {{ workday }}
+            presence = {{ presence }}
+            vt_window_open = {{ vt_window_open }}
+            active_slot = {{ active_slot }}
+            desired_preset = {{ desired_preset }}
+
+  ############################################################
+  # Apply preset or off
+  ############################################################
+  - choose:
+      - conditions: "{{ desired_preset == 'off' }}"
+        sequence:
+          - repeat:
+              for_each: "{{ climates }}"
+              sequence:
+                - service: climate.turn_off
+                  target:
+                    entity_id: "{{ repeat.item }}"
+
+          - if:
+              - condition: template
+                value_template: "{{ push_enabled }}"
+            then:
+              - service: "{{ notify_service }}"
+                data:
+                  title: "Heating update"
+                  message: "Heating turned off (preset = off)."
+
+          - if:
+              - condition: template
+                value_template: "{{ debug_enabled }}"
+            then:
+              - service: persistent_notification.create
+                data:
+                  title: "Heating debug"
+                  message: "Preset is off. Heating off."
+    default:
+      - repeat:
+          for_each: "{{ climates }}"
+          sequence:
+            - service: climate.set_preset_mode
+              target:
+                entity_id: "{{ repeat.item }}"
+              data:
+                preset_mode: "{{ desired_preset }}"
+
+      - if:
+          - condition: template
+            value_template: "{{ push_enabled }}"
+        then:
+          - service: "{{ notify_service }}"
+            data:
+              title: "Heating preset"
+              message: "Applying preset '{{ desired_preset }}'."
+
+      - if:
+          - condition: template
+            value_template: "{{ debug_enabled }}"
+        then:
+          - service: persistent_notification.create
+            data:
+              title: "Heating debug"
+              message: >
+                Preset '{{ desired_preset }}' applied.
