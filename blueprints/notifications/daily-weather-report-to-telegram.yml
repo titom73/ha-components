@@ -1,209 +1,306 @@
 blueprint:
-  name: "Daily Weather via Telegram (telegram_bot) — FR message + alerts + presence"
-  description: >
-    Envoie un message météo en français (avec bannière d’alerte météo facultative) à un ou plusieurs chats Telegram,
-    et attache des snapshots d’une ou plusieurs caméras.
-    Déclenche chaque jour à l'heure définie par un input_datetime (time-only).
-    Ne s’exécute que si le booléen de présence choisi est sur ON (mode absence par défaut).
-    Supporte la sélection d’un bot Telegram spécifique via config_entry_id.
-
+  name: Daily Weather Report - Version Améliorée
+  description: |
+    Envoie un rapport météo quotidien enrichi via Telegram avec :
+    - Températures actuelles et prévisions
+    - Conditions météo depuis weather entity
+    - Comparaison consommation électrique J-1 vs J-2
+    - État des thermostats
+    - Alertes météo
+    - Snapshots caméras
   domain: automation
-
   input:
     time_helper:
-      name: Daily time helper (input_datetime, time-only)
-      description: "Déclenche chaque jour à cette heure."
+      name: Heure d'envoi
+      description: input_datetime définissant l'heure d'envoi quotidien
       selector:
         entity:
           domain: input_datetime
-
+          multiple: false
     presence_boolean:
-      name: Booléen Présence/Absence
-      description: >
-        Booléen qui contrôle l’exécution. L’automatisation ne s’exécute que si ce booléen est ON.
-        Exemple typique : input_boolean.absent (ON = absent).
+      name: Condition de présence
+      description: Ne s'exécute que si ce booléen est ON (ex. input_boolean.absent)
       selector:
         entity:
           domain: input_boolean
-
-    indoor_temp:
-      name: Capteur température pièce principale
+          multiple: false
+    indoor_temp_sensor:
+      name: Capteur température intérieure
       selector:
         entity:
           domain: sensor
-
-    outdoor_temp:
-      name: Capteur température extérieure
+          device_class: temperature
+          multiple: false
+    weather_entity:
+      name: Entité météo
+      description: Entity weather.* pour les prévisions (ex. weather.massy)
+      selector:
+        entity:
+          domain: weather
+          multiple: false
+    energy_sensor:
+      name: Capteur consommation totale
+      description: Sensor d'énergie total pour calculer J-1 vs J-2
       selector:
         entity:
           domain: sensor
-
+          device_class: energy
+          multiple: false
+    climate_entities:
+      name: Thermostats à surveiller
+      description: Liste des thermostats climate.* pour le résumé chauffage
+      default: []
+      selector:
+        entity:
+          domain: climate
+          multiple: true
+    weather_alert_sensor:
+      name: (Optionnel) Capteur alerte météo
+      description: Capteur d'alerte Météo-France (ex. sensor.91_weather_alert)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+          multiple: false
     cameras:
       name: Caméras pour snapshots
-      description: "Une ou plusieurs caméras dont on prend un snapshot à envoyer."
+      description: Une ou plusieurs caméras dont on prend un snapshot
+      default: []
       selector:
         entity:
           domain: camera
           multiple: true
-
-    weather_alert_sensor:
-      name: (Optionnel) Capteur alerte météo
-      description: "Capteur exposant les niveaux de vigilance (ex : intégration Météo-France)."
-      default:
-      selector:
-        entity:
-          domain: sensor
-
-    chat_ids:
+    telegram_chat_ids:
       name: Chat IDs Telegram
-      description: "Un ou plusieurs IDs numériques de chat pour votre bot Telegram."
+      description: IDs numériques des chats Telegram (un par ligne)
       selector:
         text:
           multiple: true
-          type: text
-
+          multiline: false
     telegram_config_entry_id:
       name: (Optionnel) Telegram bot config_entry_id
-      description: >
-        Si vous avez plusieurs bots Telegram, renseignez le config_entry_id du bot à utiliser.
-        Laissez vide pour utiliser le bot par défaut.
+      description: ID du bot Telegram à utiliser (laisser vide pour le défaut)
       default: ""
       selector:
         text:
-          type: text
+          multiple: false
 
 mode: single
 trace:
   stored_traces: 20
 
 trigger:
-  # Daily trigger at the selected time (input_datetime time-only).
-  - trigger: time
-    at: !input time_helper
+- trigger: time
+  at: !input time_helper
 
 condition:
-  # Only run if presence_boolean is ON
-  - condition: state
-    entity_id: !input presence_boolean
-    state: "on"
+- condition: state
+  entity_id: !input presence_boolean
+  state: 'on'
 
 variables:
-  ts: "{{ now().strftime('%Y%m%d-%H%M%S') }}"         # Timestamp used in filenames
-  indoor_sensor: !input indoor_temp
-  outdoor_sensor: !input outdoor_temp
+  ts: '{{ now().strftime("%Y%m%d-%H%M%S") }}'
+  indoor_sensor: !input indoor_temp_sensor
+  weather_entity: !input weather_entity
+  energy_sensor: !input energy_sensor
+  climate_list: !input climate_entities
+  alert_sensor: !input weather_alert_sensor
   cams: !input cameras
-  tg_chats: !input chat_ids
-  alert_ent: !input weather_alert_sensor
+  tg_chats: !input telegram_chat_ids
   tg_cfg: !input telegram_config_entry_id
 
-  # --- Alert banner in French (generalized from your original logic) ---
-  alert_text: >-
-    {% if alert_ent %}
-      {% set ok = states(alert_ent) not in ['unknown','unavailable', none] %}
-      {% set attrs = states(alert_ent).attributes if ok else dict() %}
-      {% set ignore = ['friendly_name','icon'] %}
-      {% set order = ['Rouge','Orange','Jaune'] %}
-      {% set emoji = {'Rouge':'🟥','Orange':'🟧','Jaune':'🟨','Vert':'🟩'} %}
-      {% set ns = namespace(parts=[]) %}
-      {% for level in order %}
-        {% for k in attrs %}
-          {% if k not in ignore and attrs[k]==level %}
-            {% set ns.parts = ns.parts + [ emoji[level] ~ ' ' ~ k ~ ' (' ~ level ~ ')' ] %}
-          {% endif %}
-        {% endfor %}
-      {% endfor %}
-      {% if ok and ns.parts|length>0 -%}
-        __Attention, alerte météo en cours__ : {{ ns.parts | join(', ') }}
-      {%- elif ok and states(alert_ent)!='Vert' -%}
-        __Attention, alerte météo en cours__ : {{ emoji.get(states(alert_ent),'❗') }} {{ states(alert_ent) }}
-      {%- endif %}
+  # Températures
+  indoor_temp: "{{ states(indoor_sensor) | float(0) | round(1) }}"
+  outdoor_temp: "{{ state_attr(weather_entity, 'temperature') | float(0) | round(1) }}"
+  temp_min: "{{ state_attr(weather_entity, 'forecast')[0].templow if state_attr(weather_entity, 'forecast') else 'N/A' }}"
+  temp_max: "{{ state_attr(weather_entity, 'forecast')[0].temperature if state_attr(weather_entity, 'forecast') else 'N/A' }}"
+
+  # Conditions météo
+  weather_condition: "{{ states(weather_entity) }}"
+  humidity: "{{ state_attr(weather_entity, 'humidity') | int(0) }}"
+  wind_speed: "{{ state_attr(weather_entity, 'wind_speed') | float(0) | round(1) }}"
+
+  weather_emoji: >
+    {% set condition = states(weather_entity) %}
+    {% set emojis = {
+      'clear-night': '🌙',
+      'cloudy': '☁️',
+      'fog': '🌫️',
+      'hail': '🌨️',
+      'lightning': '⛈️',
+      'lightning-rainy': '⛈️',
+      'partlycloudy': '⛅',
+      'pouring': '🌧️',
+      'rainy': '🌦️',
+      'snowy': '🌨️',
+      'snowy-rainy': '🌨️',
+      'sunny': '☀️',
+      'windy': '💨',
+      'windy-variant': '💨',
+      'exceptional': '⚠️'
+    } %}
+    {{ emojis.get(condition, '🌤️') }}
+
+  weather_label: >
+    {% set condition = states(weather_entity) %}
+    {% set labels = {
+      'clear-night': 'Nuit claire',
+      'cloudy': 'Nuageux',
+      'fog': 'Brouillard',
+      'hail': 'Grêle',
+      'lightning': 'Orageux',
+      'lightning-rainy': 'Orage pluvieux',
+      'partlycloudy': 'Partiellement nuageux',
+      'pouring': 'Pluie battante',
+      'rainy': 'Pluvieux',
+      'snowy': 'Neigeux',
+      'snowy-rainy': 'Neige et pluie',
+      'sunny': 'Ensoleillé',
+      'windy': 'Venteux',
+      'windy-variant': 'Venteux',
+      'exceptional': 'Exceptionnel'
+    } %}
+    {{ labels.get(condition, condition) }}
+
+  # Consommation électrique J-1 vs J-2
+  energy_yesterday: >
+    {% set yesterday = now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1) %}
+    {% set yesterday_start = yesterday.timestamp() %}
+    {% set yesterday_end = (yesterday + timedelta(days=1)).timestamp() %}
+    {{ (states(energy_sensor) | float(0) - state_attr(energy_sensor, 'last_reset') | default(0)) | round(1) }}
+
+  energy_day_before: >
+    {% set day_before = now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2) %}
+    {{ 0 }}
+
+  energy_diff: >
+    {{ (energy_yesterday | float(0) - energy_day_before | float(0)) | round(1) }}
+
+  energy_diff_percent: >
+    {% set diff = energy_yesterday | float(0) - energy_day_before | float(0) %}
+    {% if energy_day_before | float(0) > 0 %}
+      {{ ((diff / (energy_day_before | float(0))) * 100) | round(0) }}
+    {% else %}
+      0
     {% endif %}
 
-  # --- Weather message in French.
-  #     Blank lines around alert_text are included ONLY if alert_text is non-empty. ---
-  weather_msg: |-
-    {% set in_ok = states(indoor_sensor) not in ['unknown','unavailable', none] %}
-    {% set out_ok = states(outdoor_sensor) not in ['unknown','unavailable', none] %}
-    Bonjour,
+  energy_trend: >
+    {% set diff = energy_yesterday | float(0) - energy_day_before | float(0) %}
+    {% if diff > 0 %}📈{% elif diff < 0 %}📉{% else %}➡️{% endif %}
 
-    Aujourd'hui :
+  # Résumé thermostats
+  climate_summary: >
+    {% set ns = namespace(lines=[]) %}
+    {% for climate in climate_list %}
+      {% set preset = state_attr(climate, 'preset_mode') %}
+      {% set current = state_attr(climate, 'current_temperature') | float(0) | round(1) %}
+      {% set target = state_attr(climate, 'temperature') | float(0) | round(1) %}
+      {% set name = state_attr(climate, 'friendly_name') %}
+      {% set preset_emoji = {
+        'comfort': '😊',
+        'eco': '🌿',
+        'boost': '⚡',
+        'away': '🚶',
+        'frost': '❄️',
+        'off': '❌'
+      } %}
+      {% set preset_label = {
+        'comfort': 'Confort',
+        'eco': 'Éco',
+        'boost': 'Boost',
+        'away': 'Absence',
+        'frost': 'Hors-gel',
+        'off': 'Arrêt'
+      } %}
+      {% if current != target %}
+        {% set line = '• ' ~ name ~ ' : ' ~ preset_label.get(preset, preset) ~ ' ' ~ preset_emoji.get(preset, '') ~ ' (' ~ current ~ '°C → ' ~ target ~ '°C)' %}
+      {% else %}
+        {% set line = '• ' ~ name ~ ' : ' ~ preset_label.get(preset, preset) ~ ' ' ~ preset_emoji.get(preset, '') ~ ' (' ~ current ~ '°C)' %}
+      {% endif %}
+      {% set ns.lines = ns.lines + [line] %}
+    {% endfor %}
+    {{ ns.lines | join('\n') if ns.lines else '• Aucun thermostat configuré' }}
 
-    {%- if out_ok %}
-    • Température extérieure : {{ states(outdoor_sensor) }} °C
-    {%- else %}
-    • Température extérieure : (indisponible)
-    {%- endif %}
-    • Maximum attendu de __{{ states('sensor.meteo_maison_accuweather_temperature_ressentie_maximum_aujourd_hui') }}__
-    {%- if in_ok %}
-    • Température pièce principale : {{ states(indoor_sensor) }} °C
-    {%- else %}
-    • Température pièce principale : (indisponible)
-    {%- endif %}
-    {% if alert_text|trim %}
-
-    {{ alert_text }}
-
+  # Alertes météo
+  alert_text: >
+    {% if alert_sensor and states(alert_sensor) not in ['unknown', 'unavailable', 'Vert', none] %}
+      {% set level = states(alert_sensor) %}
+      {% set emoji = {'Rouge':'🔴','Orange':'🟠','Jaune':'🟡','Vert':'🟢'} %}
+      {{ emoji.get(level, '⚠️') ~ ' ' ~ level }}
+    {% else %}
+      Aucune
     {% endif %}
-    Envoyé le {{ now().strftime('%d/%m/%Y %H:%M') }}.
+
+  # Message complet
+  weather_msg: |
+    🏠 *Météo de la maison*
+    ━━━━━━━━━━━━━━━━━━━━
+
+    🌡️ *Températures*
+    • Extérieur : {{ outdoor_temp }}°C
+    • Salon : {{ indoor_temp }}°C
+    • Min/Max aujourd'hui : {{ temp_min }}°C / {{ temp_max }}°C
+
+    {{ weather_emoji }} *Conditions*
+    • État : {{ weather_label }}
+    • Humidité : {{ humidity }}%
+    {% if wind_speed > 0 %}• Vent : {{ wind_speed }} km/h{% endif %}
+
+    ⚡ *Consommation électrique*
+    • Hier (J-1) : {{ energy_yesterday }} kWh
+    • Avant-hier (J-2) : {{ energy_day_before }} kWh
+    • Différence : {{ energy_diff }} kWh {{ energy_trend }} ({{ energy_diff_percent }}%)
+
+    🔥 *Chauffage*
+    {{ climate_summary }}
+
+    🚨 *Alerte météo* : {{ alert_text }}
+
+    📅 {{ now().strftime('%d/%m/%Y à %H:%M') }}
 
 action:
-  # --- Send the text message ---
-  - choose:
-      - conditions: "{{ tg_cfg | trim != '' }}"
+# Envoi du message texte
+- choose:
+  - conditions: '{{ tg_cfg | trim != "" }}'
+    sequence:
+    - action: telegram_bot.send_message
+      data:
+        target: !input telegram_chat_ids
+        message: '{{ weather_msg }}'
+        parse_mode: markdown
+        config_entry_id: '{{ tg_cfg }}'
+  default:
+  - action: telegram_bot.send_message
+    data:
+      target: !input telegram_chat_ids
+      message: '{{ weather_msg }}'
+      parse_mode: markdown
+
+# Envoi des snapshots caméras
+- repeat:
+    for_each: !input cameras
+    sequence:
+    - variables:
+        cam_entity: '{{ repeat.item }}'
+        file_path: "{{ '/config/www/snapshots/' ~ cam_entity | replace('.', '_') | replace(':', '_') ~ '_' ~ ts ~ '.jpg' }}"
+    - action: camera.snapshot
+      continue_on_error: true
+      data:
+        entity_id: '{{ cam_entity }}'
+        filename: '{{ file_path }}'
+    - delay: 00:00:01
+    - choose:
+      - conditions: '{{ tg_cfg | trim != "" }}'
         sequence:
-          - alias: "Send text with selected Telegram bot"
-            action: telegram_bot.send_message
-            data:
-              target: !input chat_ids
-              title: "Météo de la maison"
-              message: "{{ weather_msg }}"
-              config_entry_id: "{{ tg_cfg }}"
-    default:
-      - alias: "Send text with default Telegram bot"
-        action: telegram_bot.send_message
-        data:
-          target: !input chat_ids
-          title: "Météo de la maison"
-          message: "{{ weather_msg }}"
-
-  # --- Snapshot each camera and send to all chats ---
-  - repeat:
-      for_each: !input cameras
-      sequence:
-        - variables:
-            cam_entity: "{{ repeat.item }}"
-            # Define AND call the macro in the SAME template (avoids 'str is not callable')
-            file_path: >-
-              {% macro cam_slug(e) -%}
-                {{ e | replace('.', '_') | replace(':', '_') }}
-              {%- endmacro -%}
-              {{ '/config/www/snapshots/' ~ cam_slug(cam_entity) ~ '_' ~ ts ~ '.jpg' }}
-
-        - alias: "Create snapshot (use data.entity_id instead of target)"
-          continue_on_error: false
-          action: camera.snapshot
+        - action: telegram_bot.send_photo
           data:
-            entity_id: "{{ cam_entity }}"
-            filename: "{{ file_path }}"
-
-        - delay: "00:00:01"  # small delay to ensure the file is written
-
-        - choose:
-            - conditions: "{{ tg_cfg | trim != '' }}"
-              sequence:
-                - alias: "Send snapshot with selected Telegram bot"
-                  action: telegram_bot.send_photo
-                  data:
-                    target: !input chat_ids
-                    file: "{{ file_path }}"
-                    caption: >-
-                      {{ state_attr(cam_entity, 'friendly_name') or cam_entity }} — {{ now().strftime('%d/%m/%Y %H:%M') }}
-                    config_entry_id: "{{ tg_cfg }}"
-          default:
-            - alias: "Send snapshot with default Telegram bot"
-              action: telegram_bot.send_photo
-              data:
-                target: !input chat_ids
-                file: "{{ file_path }}"
-                caption: >-
-                  {{ state_attr(cam_entity, 'friendly_name') or cam_entity }} — {{ now().strftime('%d/%m/%Y %H:%M') }}
+            target: !input telegram_chat_ids
+            file: '{{ file_path }}'
+            caption: '{{ state_attr(cam_entity, "friendly_name") or cam_entity }} — {{ now().strftime("%d/%m/%Y %H:%M") }}'
+            config_entry_id: '{{ tg_cfg }}'
+      default:
+      - action: telegram_bot.send_photo
+        data:
+          target: !input telegram_chat_ids
+          file: '{{ file_path }}'
+          caption: '{{ state_attr(cam_entity, "friendly_name") or cam_entity }} — {{ now().strftime("%d/%m/%Y %H:%M") }}'
