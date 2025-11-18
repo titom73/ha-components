@@ -18,7 +18,7 @@ blueprint:
 
     area:
       name: Area
-      description: All climate entities inside this area (alternative to climate_list)
+      description: All climate entities inside this area (alternative)
       default: ""
       selector:
         area: {}
@@ -45,76 +45,78 @@ blueprint:
 
     workday_slots:
       name: Workday schedule slots
-      description: List of objects for workday slots (time + present/absent presets)
+      description: List of objects defining time slots and presets
       selector:
-        object:
-          properties:
-            start:
-              selector:
-                time: {}
-            preset_present:
-              selector:
-                select:
-                  options:
-                    - comfort
-                    - eco
-                    - away
-                    - boost
-                    - off
-            preset_absent:
-              selector:
-                select:
-                  options:
-                    - comfort_away
-                    - eco_away
-                    - off
-          required:
-            - start
-            - preset_present
-            - preset_absent
-        multiple: true
+        list:
+          element:
+            object:
+              properties:
+                start:
+                  selector:
+                    time: {}
+                preset_present:
+                  selector:
+                    select:
+                      options:
+                        - comfort
+                        - eco
+                        - away
+                        - boost
+                        - off
+                preset_absent:
+                  selector:
+                    select:
+                      options:
+                        - comfort_away
+                        - eco_away
+                        - off
+              required:
+                - start
+                - preset_present
+                - preset_absent
 
     non_workday_slots:
       name: Non-workday schedule slots
-      description: List of objects (time + present/absent presets)
+      description: List of objects defining time slots and presets
       selector:
-        object:
-          properties:
-            start:
-              selector:
-                time: {}
-            preset_present:
-              selector:
-                select:
-                  options:
-                    - comfort
-                    - eco
-                    - away
-                    - boost
-                    - off
-            preset_absent:
-              selector:
-                select:
-                  options:
-                    - comfort_away
-                    - eco_away
-                    - off
-          required:
-            - start
-            - preset_present
-            - preset_absent
-        multiple: true
+        list:
+          element:
+            object:
+              properties:
+                start:
+                  selector:
+                    time: {}
+                preset_present:
+                  selector:
+                    select:
+                      options:
+                        - comfort
+                        - eco
+                        - away
+                        - boost
+                        - off
+                preset_absent:
+                  selector:
+                    select:
+                      options:
+                        - comfort_away
+                        - eco_away
+                        - off
+              required:
+                - start
+                - preset_present
+                - preset_absent
 
     push_notifications:
       name: Mobile notifications
-      description: Enable push notifications on each decision
+      description: Enable push notifications for each change
       default: true
       selector:
         boolean: {}
 
     debug:
       name: Debug mode
-      description: Enable persistent notifications
+      description: Enable persistent debug notifications
       default: false
       selector:
         entity:
@@ -163,11 +165,11 @@ variables:
 
   active_slot: >-
     {% set t = now_time %}
-    {% set s = selected_slots | selectattr('start','<=',t) | list %}
-    {% if s | length == 0 %}
+    {% set lst = selected_slots | selectattr('start','<=',t) | list %}
+    {% if lst | length == 0 %}
       {{ None }}
     {% else %}
-      {{ s[-1] }}
+      {{ lst[-1] }}
     {% endif %}
 
   vt_window_open: >-
@@ -212,8 +214,7 @@ action:
               - service: persistent_notification.create
                 data:
                   title: "Heating debug"
-                  message: >
-                    Heating disabled by global switch.
+                  message: "Heating disabled by global switch."
     default: []
 
   ############################################################
@@ -224,6 +225,7 @@ action:
           - condition: template
             value_template: "{{ vt_window_open }}"
         sequence:
+
           - if:
               - condition: template
                 value_template: "{{ push_enabled }}"
@@ -240,8 +242,7 @@ action:
               - service: persistent_notification.create
                 data:
                   title: "Heating debug"
-                  message: >
-                    VTherm window_state is on. Heating blocked.
+                  message: "VTherm window_state is on. Heating blocked."
     default: []
 
   ############################################################
@@ -329,5 +330,4 @@ action:
           - service: persistent_notification.create
             data:
               title: "Heating debug"
-              message: >
-                Preset '{{ desired_preset }}' applied.
+              message: "Preset '{{ desired_preset }}' applied."
