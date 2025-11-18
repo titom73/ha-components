@@ -1,0 +1,117 @@
+blueprint:
+  name: Notification changement mode chauffage
+  description: Envoie une notification lorsque le mode d'un ou plusieurs thermostats change avec le mode précédent, le nouveau mode, la température actuelle et la raison
+  domain: automation
+  input:
+    climate_entities:
+      name: Thermostats
+      description: Entités climate à surveiller
+      selector:
+        entity:
+          domain:
+          - climate
+          multiple: true
+    notify_target:
+      name: Cible de notification
+      description: Service de notification (ex. notify.mobile_app_iphone_de_thomas)
+      selector:
+        text:
+          multiple: false
+          multiline: false
+
+mode: queued
+max: 10
+max_exceeded: silent
+
+trigger:
+- platform: state
+  entity_id: !input climate_entities
+  attribute: preset_mode
+
+variables:
+  climate_entity: '{{ trigger.entity_id }}'
+  notify_target: !input notify_target
+  old_preset: '{{ trigger.from_state.attributes.preset_mode if trigger.from_state else "inconnu" }}'
+  new_preset: '{{ trigger.to_state.attributes.preset_mode if trigger.to_state else "inconnu" }}'
+  old_reason: >
+    {% if trigger.from_state and "hvac_off_reason" in trigger.from_state.attributes %}
+      {% set r = trigger.from_state.attributes.hvac_off_reason %}
+      {{ r if r not in [none, None, "None", ""] else "none" }}
+    {% else %}
+      none
+    {% endif %}
+  new_reason: >
+    {% if trigger.to_state and "hvac_off_reason" in trigger.to_state.attributes %}
+      {% set r = trigger.to_state.attributes.hvac_off_reason %}
+      {{ r if r not in [none, None, "None", ""] else "none" }}
+    {% else %}
+      none
+    {% endif %}
+  current_temp: '{{ state_attr(climate_entity, "current_temperature") | float(0) | round(1) }}'
+  target_temp: '{{ state_attr(climate_entity, "temperature") | float(0) | round(1) }}'
+  climate_name: '{{ state_attr(climate_entity, "friendly_name") or climate_entity }}'
+
+  preset_labels:
+    comfort: "Confort 😊"
+    comfort_away: "Confort (absence) 🏠"
+    eco: "Éco 🌿"
+    eco_away: "Éco (absence) 🌿"
+    away: "Absence 🚶"
+    boost: "Boost ⚡"
+    frost: "Hors-gel ❄️"
+    off: "Arrêt ❌"
+    none: "Aucun"
+    inconnu: "Inconnu ❓"
+
+  reason_labels:
+    none: "Aucune (chauffage autorisé ✅)"
+    window_open: "Fenêtre ouverte 🪟"
+    frost_protection: "Protection hors-gel ❄️"
+    max_temp_exceeded: "Température max atteinte 🌡️"
+    safety: "Sécurité ⚠️"
+    external_block: "Bloqué externe 🔁"
+    power_off: "Alimentation coupée 🔌"
+    unknown: "Inconnue ❓"
+
+  old_label: '{{ preset_labels.get(old_preset, old_preset) }}'
+  new_label: '{{ preset_labels.get(new_preset, new_preset) }}'
+  old_reason_label: '{{ reason_labels.get(old_reason, old_reason) }}'
+  new_reason_label: '{{ reason_labels.get(new_reason, new_reason) }}'
+  reason_changed: '{{ old_reason != new_reason }}'
+
+condition:
+- condition: template
+  value_template: '{{ old_preset != new_preset }}'
+- condition: template
+  value_template: >
+    {{ trigger.from_state is not none
+       and trigger.from_state.state not in ['unknown', 'unavailable']
+       and old_preset not in ['unknown', 'unavailable', 'inconnu', none] }}
+- condition: template
+  value_template: >
+    {{ (now() - states.sensor.uptime.last_changed).total_seconds() > 120
+       if states.sensor.uptime is defined
+       else (now() - as_timestamp(states('sensor.last_boot')) | float(0)) > 120
+       if states.sensor.last_boot is defined
+       else true }}
+
+action:
+- service: '{{ notify_target }}'
+  data:
+    title: "🔥 Chauffage - Changement de mode"
+    message: |
+      **{{ climate_name }}**
+
+      Mode : {{ old_label }} → {{ new_label }}
+      Température actuelle : {{ current_temp }}°C
+      Température cible : {{ target_temp }}°C
+      {% if reason_changed %}
+      Raison : {{ old_reason_label }} → {{ new_reason_label }}
+      {% else %}
+      Raison : {{ new_reason_label }}
+      {% endif %}
+    data:
+      push:
+        sound:
+          name: default
+          volume: 0.5
