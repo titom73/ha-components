@@ -1,0 +1,143 @@
+blueprint:
+  name: Notification changement preset chauffage + raison VTherm
+  description: >
+    Envoie une notification mobile lorsque le preset d'un thermostat
+    Versatile Thermostat change et/ou que sa raison d'arrêt (hvac_off_reason) change.
+    Message friendly en français avec emojis.
+  domain: automation
+
+  input:
+
+    vtherm_climate:
+      name: Thermostat VTherm à surveiller
+      description: Entité climate.* du thermostat Versatile Thermostat
+      selector:
+        entity:
+          domain: climate
+
+    notify_service:
+      name: Service de notification mobile
+      description: >
+        Nom complet du service notify, par exemple:
+        notify.mobile_app_iphone_de_thomas
+      default: notify.mobile_app_iphone_de_thomas
+      selector:
+        text: {}
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input vtherm_climate
+
+variables:
+
+  vtherm: !input vtherm_climate
+  notify_service: !input notify_service
+
+  # Etats sources
+  old_state: "{{ trigger.from_state }}"
+  new_state: "{{ trigger.to_state }}"
+
+  # Presets bruts
+  old_preset: "{{ old_state.attributes.preset_mode if old_state else 'unknown' }}"
+  new_preset: "{{ new_state.attributes.preset_mode if new_state else 'unknown' }}"
+
+  # hvac_off_reason brut
+  old_reason: "{{ old_state.attributes.hvac_off_reason if old_state and 'hvac_off_reason' in old_state.attributes else 'none' }}"
+  new_reason: "{{ new_state.attributes.hvac_off_reason if new_state and 'hvac_off_reason' in new_state.attributes else 'none' }}"
+
+  # Dictionnaire de labels pour les presets
+  preset_labels: >
+    {{
+      {
+        'comfort': 'Confort 😊',
+        'comfort_away': 'Confort (absence) 🏠➡️🚶',
+        'eco': 'Eco 🌿',
+        'eco_away': 'Eco (absence) 🌿🚶',
+        'away': 'Absence longue 🚶‍♂️💼',
+        'boost': 'Boost ⚡🔥',
+        'off': 'Arrêt ❌',
+        'none': 'Aucun',
+        'unknown': 'Inconnu ❓'
+      }
+    }}
+
+  old_preset_label: "{{ preset_labels.get(old_preset, old_preset) }}"
+  new_preset_label: "{{ preset_labels.get(new_preset, new_preset) }}"
+
+  # Dictionnaire de labels pour hvac_off_reason (adapter selon ton usage VTherm)
+  reason_labels: >
+    {{
+      {
+        'none': 'Aucune (chauffage autorisé ✅)',
+        'window_open': 'Fenêtre ouverte 🪟 (chauffage coupé)',
+        'frost_protection': 'Protection hors gel ❄️',
+        'max_temp_exceeded': 'Température max atteinte 🌡️',
+        'safety': 'Sécurité / protection ⚠️',
+        'external_block': 'Bloqué par une autre logique externe 🔁',
+        'power_off': 'Alimentation coupée 🔌',
+        'unknown': 'Inconnue ❓'
+      }
+    }}
+
+  mapped_old_reason: >
+    {% set r = old_reason if old_reason is not none else 'none' %}
+    {{ reason_labels.get(r, r) }}
+
+  mapped_new_reason: >
+    {% set r = new_reason if new_reason is not none else 'none' %}
+    {{ reason_labels.get(r, r) }}
+
+  # Flags de changement
+  preset_changed: "{{ old_preset != new_preset }}"
+  reason_changed: "{{ old_reason != new_reason }}"
+
+  # Equipement sous-jacent (radiateur / valve / autre)
+  heater: >-
+    {{
+      state_attr(vtherm, 'heater_entity_id')
+      or state_attr(vtherm, 'climate_entity_id')
+      or state_attr(vtherm, 'valve_entity_id')
+      or 'Équipement inconnu'
+    }}
+
+action:
+
+  # On ne notifie que si AU MOINS l'un des deux a changé
+  - condition: template
+    value_template: "{{ preset_changed or reason_changed }}"
+
+  - service: "{{ notify_service }}"
+    data:
+      title: >
+        {% if preset_changed and reason_changed %}
+          🔥 Chauffage : mode et état modifiés
+        {% elif preset_changed %}
+          🔥 Chauffage : changement de mode
+        {% else %}
+          🔥 Chauffage : changement d'état
+        {% endif %}
+      message: >
+        {% set name = new_state.name if new_state else vtherm %}
+
+        Thermostat *{{ name }}* :
+
+        {% if preset_changed %}
+        • Ancien mode : **{{ old_preset_label }}**
+        • Nouveau mode : **{{ new_preset_label }}**
+        {% else %}
+        • Mode courant : **{{ new_preset_label }}**
+        {% endif %}
+
+        {% if reason_changed %}
+        • Ancienne raison d'arrêt : {{ mapped_old_reason }}
+        • Nouvelle raison d'arrêt : {{ mapped_new_reason }}
+        {% else %}
+        • Raison d'arrêt actuelle : {{ mapped_new_reason }}
+        {% endif %}
+
+        🔧 Équipement piloté : {{ heater }}
+
+        💡 Information automatique fournie par Versatile Thermostat ✔️
